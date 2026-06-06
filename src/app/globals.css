@@ -1,0 +1,200 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
+
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-surface: var(--bg-raised);
+  --color-surface-overlay: var(--bg-overlay);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --font-display: var(--font-display-family);
+  --font-body: var(--font-body-family);
+  --font-mono: var(--font-mono-family);
+}
+
+:root {
+  --font-display-family: var(--font-fraunces), Georgia, serif;
+  --bg-base: #f7f4ef;
+  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  --bg-raised: #ffffff;
+  --bg-overlay: #ede9e2;
+  --border: #d4cfc5;
+  --border-subtle: #e8e4dc;
+  --text-primary: #1a1814;
+  --text-muted: #6b6560;
+  --accent: #2d4a3e;
+  --accent-dim: #3d6354;
+  --accent-warm: #b86b42;
+  --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04);
+  --shadow-md: 0 4px 16px rgba(26, 24, 20, 0.06);
+  --shadow-lg: 0 12px 32px rgba(26, 24, 20, 0.08);
+}
+
+.dark {
+  --font-display-family: var(--font-instrument), Georgia, serif;
+  --bg-base: #0c0d10;
+  --bg-raised: #14161b;
+  --bg-overlay: #1c1f26;
+  --border: #2a2e38;
+  --border-subtle: #1f2229;
+  --text-primary: #e8eaed;
+  --text-muted: #8b919c;
+  --accent: #c4a882;
+  --accent-dim: #8a7355;
+  --accent-warm: #d4a882;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--bg-base);
+  background-image: var(--bg-noise);
+  color: var(--text-primary);
+  font-family: var(--font-body-family), Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+.dark {
+  --bg-noise: none;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg-base);
+}
+
+.prose-consulate {
+  line-height: 1.7;
+}
+
+.prose-consulate h1,
+.prose-consulate h2,
+.prose-consulate h3 {
+  font-family: var(--font-display-family), serif;
+  font-weight: 500;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose-consulate p {
+  margin-bottom: 1em;
+}
+
+.prose-consulate ul,
+.prose-consulate ol {
+  margin-bottom: 1em;
+  padding-left: 1.5em;
+}
+
+.prose-consulate li {
+  margin-bottom: 0.25em;
+}
+
+.prose-consulate code:not(pre code) {
+  background: var(--bg-overlay);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: var(--font-mono-family), monospace;
+}
+
+.prose-consulate pre {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+
+.prose-consulate pre code {
+  font-family: var(--font-mono-family), monospace;
+  font-size: 0.85em;
+  background: none;
+  padding: 0;
+}
+
+.prose-consulate blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1em;
+  margin-left: 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.prose-consulate a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-consulate table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.prose-consulate th,
+.prose-consulate td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.prose-consulate th {
+  background: var(--bg-overlay);
+  font-weight: 600;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-overlay) 25%,
+    var(--bg-raised) 50%,
+    var(--bg-overlay) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
