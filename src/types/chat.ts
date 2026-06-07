@@ -114,6 +114,8 @@ export interface ConsulateMessageData {
 
   councilResponded?: number;
 
+  synthesisDegraded?: boolean;
+
 }
 
 

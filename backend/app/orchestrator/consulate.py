@@ -5,6 +5,10 @@ from collections.abc import AsyncIterator
 from app.config.settings import Settings
 from app.models.registry import DEFAULT_SYNTHESIS_MODEL_ID, get_council_members, get_model
 from app.orchestrator.consensus.engine import AgreementEngine
+from app.orchestrator.synthesis_prompt import (
+    build_consensus_fallback,
+    build_structured_deadlock_fallback,
+)
 from app.orchestrator.synthesizer import Synthesizer
 from app.providers.nvidia_provider import NvidiaProvider
 from app.schemas.chat import ChatMessage
@@ -345,17 +349,16 @@ class ConsulateOrchestrator:
                 message="Council Deadlocked",
             )
 
+            fallback_answer = build_structured_deadlock_fallback(agreement)
+            synthesis_start = time.perf_counter()
             try:
                 logger.info(
                     "consulate.synthesis.start | mode=deadlock | model=%s",
                     synthesis_id,
                 )
-                synthesis_start = time.perf_counter()
                 async for event in self._synthesizer.stream_deadlock_summary(
                     prompt,
-                    agreement.majority_position,
-                    agreement.minority_position,
-                    agreement.agreement_score,
+                    agreement,
                     synthesis_id,
                 ):
                     yield event
@@ -365,20 +368,30 @@ class ConsulateOrchestrator:
                 )
                 yield ConsulateStreamEvent(type="stage", stage="deadlock")
             except Exception as exc:
-                logger.error("consulate.synthesis.error | mode=deadlock | error=%s", exc)
-                yield ConsulateStreamEvent(type="stage", stage="error")
-                yield ConsulateStreamEvent(type="error", message=CLIENT_ERROR_MESSAGE)
+                logger.error(
+                    "consulate.synthesis.error | mode=deadlock | error=%s | synthesis.fallback_used=true",
+                    exc,
+                )
+                yield ConsulateStreamEvent(
+                    type="synthesis_complete",
+                    content=fallback_answer,
+                    status="degraded",
+                    deadlock=True,
+                    synthesis_degraded=True,
+                )
+                yield ConsulateStreamEvent(type="stage", stage="deadlock")
             return
 
         yield ConsulateStreamEvent(type="stage", stage="synthesizing")
 
+        fallback_answer = build_consensus_fallback(agreement, successful)
+        synthesis_start = time.perf_counter()
         try:
             logger.info(
                 "consulate.synthesis.start | mode=consensus | model=%s | inputs=%d",
                 synthesis_id,
                 len(successful),
             )
-            synthesis_start = time.perf_counter()
             async for event in self._synthesizer.stream_consensus(
                 prompt,
                 successful,
@@ -392,6 +405,15 @@ class ConsulateOrchestrator:
             )
             yield ConsulateStreamEvent(type="stage", stage="complete")
         except Exception as exc:
-            logger.error("consulate.synthesis.error | mode=consensus | error=%s", exc)
-            yield ConsulateStreamEvent(type="stage", stage="error")
-            yield ConsulateStreamEvent(type="error", message=CLIENT_ERROR_MESSAGE)
+            logger.error(
+                "consulate.synthesis.error | mode=consensus | error=%s | synthesis.fallback_used=true",
+                exc,
+            )
+            yield ConsulateStreamEvent(
+                type="synthesis_complete",
+                content=fallback_answer,
+                status="degraded",
+                deadlock=False,
+                synthesis_degraded=True,
+            )
+            yield ConsulateStreamEvent(type="stage", stage="complete")

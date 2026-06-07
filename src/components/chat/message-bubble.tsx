@@ -76,6 +76,12 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
             </span>
           )}
 
+          {message.consulateData?.synthesisDegraded && !message.isStreaming && (
+            <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              Synthesis unavailable — showing council summary
+            </span>
+          )}
+
           {message.consulateData?.councilTotal &&
             message.consulateData.councilResponded !== undefined &&
             !message.isStreaming &&

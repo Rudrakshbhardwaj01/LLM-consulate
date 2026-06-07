@@ -2,17 +2,39 @@ from collections.abc import AsyncIterator
 
 from app.config.constants import CONSENSUS_WITH_MINORITY_PROMPT, DEADLOCK_SYNTHESIS_PROMPT, SYNTHESIS_SYSTEM_PROMPT
 from app.orchestrator.consensus.models import ConsensusResult
+from app.orchestrator.synthesis_prompt import (
+    build_consensus_user_content,
+    build_deadlock_user_content,
+    safe_chat_message,
+)
 from app.providers.nvidia_provider import NvidiaProvider
-from app.schemas.chat import ChatMessage
 from app.schemas.consulate import ConsulateStreamEvent
 from app.schemas.provider import ModelResponse
 from app.models.registry import get_model
 from app.utils.errors import ModelNotFoundError
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Synthesizer:
     def __init__(self, provider: NvidiaProvider) -> None:
         self._provider = provider
+
+    def _log_prompt_metrics(
+        self,
+        mode: str,
+        meta: dict[str, int | bool],
+    ) -> None:
+        logger.info(
+            "consulate.synthesis.prompt | mode=%s | synthesis.prompt_chars=%d | "
+            "synthesis.compressed_chars=%d | synthesis.truncated=%s | compressed=%s",
+            mode,
+            meta["prompt_chars"],
+            meta["compressed_chars"],
+            meta["truncated"],
+            meta["compressed"],
+        )
 
     async def stream_consensus(
         self,
@@ -26,49 +48,18 @@ class Synthesizer:
                 f"Synthesis model not found: {synthesis_model_id}"
             )
 
-        summary_parts = []
-        for resp in responses:
-            text = resp.effective_content
-            if resp.success and text:
-                header = f"--- {resp.model_name} ({resp.role}) ---"
-                summary_parts.append(f"{header}\n{text}")
-
-        consensus_context = ""
-        if consensus and not consensus.is_deadlock:
-            minority_note = ""
-            if consensus.minority_support > 0 and consensus.disagreement:
-                d = consensus.disagreement
-                minority_note = (
-                    f"\nMinority position ({consensus.minority_support * 100:.0f}% support): "
-                    f"{d.minority_position}\n"
-                    f"Disputed concept: {d.disputed_concept}\n"
-                    f"Why: {d.explanation}\n"
-                )
-            consensus_context = (
-                f"\nConsensus Analysis:\n"
-                f"- Agreement: {consensus.agreement_score * 100:.0f}%\n"
-                f"- Majority ({consensus.majority_support * 100:.0f}%): "
-                f"{consensus.clusters[0].position_label if consensus.clusters else 'consensus'}\n"
-                f"- Supporting models: {', '.join(consensus.supporting_models)}\n"
-                f"{minority_note}"
-            )
-
         system_prompt = (
             CONSENSUS_WITH_MINORITY_PROMPT
             if consensus and consensus.minority_support > 0
             else SYNTHESIS_SYSTEM_PROMPT
         )
 
-        user_content = (
-            f"User Question:\n{prompt}\n\n"
-            f"Council Responses:\n\n{chr(10).join(summary_parts)}"
-            f"{consensus_context}\n\n"
-            "Synthesize these responses into a single consensus answer."
-        )
+        user_content, meta = build_consensus_user_content(prompt, responses, consensus)
+        self._log_prompt_metrics("consensus", meta)
 
         messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_content),
+            safe_chat_message("system", system_prompt),
+            safe_chat_message("user", user_content),
         ]
 
         full = ""
@@ -79,31 +70,25 @@ class Synthesizer:
                 full += content
                 yield ConsulateStreamEvent(type="synthesis_chunk", content=content)
 
-        yield ConsulateStreamEvent(type="synthesis_complete", content=full)
+        yield ConsulateStreamEvent(type="synthesis_complete", content=full, status="ok")
 
     async def stream_deadlock_summary(
         self,
         prompt: str,
-        majority: str,
-        minority: str,
-        agreement_score: float,
+        consensus: ConsensusResult,
         synthesis_model_id: str,
     ) -> AsyncIterator[ConsulateStreamEvent]:
         if not get_model(synthesis_model_id):
             raise ModelNotFoundError(
                 f"Synthesis model not found: {synthesis_model_id}"
             )
-        user_content = (
-            f"User Question:\n{prompt}\n\n"
-            f"Agreement Score: {agreement_score:.2f} (DEADLOCK — no majority position)\n\n"
-            f"MAJORITY POSITION:\n{majority}\n\n"
-            f"MINORITY POSITION:\n{minority}\n\n"
-            "Present the deadlock transparently to the user."
-        )
+
+        user_content, meta = build_deadlock_user_content(prompt, consensus)
+        self._log_prompt_metrics("deadlock", meta)
 
         messages = [
-            ChatMessage(role="system", content=DEADLOCK_SYNTHESIS_PROMPT),
-            ChatMessage(role="user", content=user_content),
+            safe_chat_message("system", DEADLOCK_SYNTHESIS_PROMPT),
+            safe_chat_message("user", user_content),
         ]
 
         full = ""
@@ -114,4 +99,9 @@ class Synthesizer:
                 full += content
                 yield ConsulateStreamEvent(type="synthesis_chunk", content=content)
 
-        yield ConsulateStreamEvent(type="synthesis_complete", content=full)
+        yield ConsulateStreamEvent(
+            type="synthesis_complete",
+            content=full,
+            status="ok",
+            deadlock=True,
+        )

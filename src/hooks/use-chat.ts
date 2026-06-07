@@ -418,6 +418,9 @@ export function useChat() {
 
             if (type === "synthesis_complete") {
               synthesisContent = event.content as string;
+              if (event.status === "degraded" || event.synthesisDegraded) {
+                consulateData.synthesisDegraded = true;
+              }
               immediate = true;
             }
 

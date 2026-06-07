@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.schemas.chat import ChatMessage, MAX_CONVERSATION_MESSAGES, MAX_MESSAGE_CHARS
 
+SynthesisStatus = Literal["ok", "degraded"]
+
 
 class ConsulateRequest(BaseModel):
     model_ids: list[str] = Field(default_factory=list, alias="modelIds")
@@ -75,6 +77,9 @@ class ConsulateStreamEvent(BaseModel):
     consensus_outcome: str | None = Field(default=None, alias="consensusOutcome")
     outcome_label: str | None = Field(default=None, alias="outcomeLabel")
     confidence_level: str | None = Field(default=None, alias="confidenceLevel")
+    status: SynthesisStatus | None = None
+    deadlock: bool | None = None
+    synthesis_degraded: bool | None = Field(default=None, alias="synthesisDegraded")
 
     model_config = {"populate_by_name": True}
 
