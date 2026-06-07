@@ -9,6 +9,7 @@ from app.orchestrator.consensus.judge import run_judge
 from app.orchestrator.consensus.majority_vote import (
     ConsensusOutcome,
     analyze_majority,
+    analyze_recommendation_vote,
     confidence_label,
     outcome_display_label,
 )
@@ -102,6 +103,21 @@ class AgreementEngine:
         ) = analyze_majority(clusters, prompt=prompt, topic=topic)
         majority_ms = int((time.perf_counter() - majority_start) * 1000)
 
+        topic_support = maj_support
+        (
+            recommendation_support,
+            recommendation_minority_support,
+            _top_recommendation,
+            rec_supporting_models,
+            rec_minority_models,
+        ) = analyze_recommendation_vote(claims)
+
+        logger.info(
+            "consulate.vote_support | topic_support=%.0f%% | recommendation_support=%.0f%%",
+            topic_support * 100,
+            recommendation_support * 100,
+        )
+
         texts = [c.sanitized_text for c in claims]
         need_judge_llm = self._use_llm_judge and is_deadlock
 
@@ -130,7 +146,7 @@ class AgreementEngine:
                 disagreement=disagreement,
                 majority=majority,
                 minority=minority,
-                majority_support=maj_support,
+                majority_support=topic_support,
                 is_deadlock=is_deadlock,
             )
         else:
@@ -144,7 +160,7 @@ class AgreementEngine:
                 disagreement=disagreement,
                 majority=majority,
                 minority=minority,
-                majority_support=maj_support,
+                majority_support=topic_support,
                 is_deadlock=is_deadlock,
             )
         judge_ms = int((time.perf_counter() - judge_start) * 1000)
@@ -193,7 +209,7 @@ class AgreementEngine:
             "claims_ms=%d | embeddings_ms=%d | similarity_ms=%d | cluster_ms=%d | "
             "majority_ms=%d | judge_ms=%d | agreement_ms=%d",
             outcome.value,
-            maj_support * 100,
+            recommendation_support * 100,
             agreement_score,
             conf_level,
             is_deadlock,
@@ -215,16 +231,18 @@ class AgreementEngine:
             majority_position=_cluster_representative_text(majority, claims),
             minority_position=_cluster_representative_text(minority, claims) if minority else "",
             primary_disagreement=primary_disagreement,
-            majority_support=round(maj_support, 3),
-            minority_support=round(min_support, 3),
-            supporting_models=majority.model_names if majority else [],
-            minority_models=minority.model_names if minority else [],
+            majority_support=round(recommendation_support, 3),
+            minority_support=round(recommendation_minority_support, 3),
+            topic_support=round(topic_support, 3),
+            recommendation_support=round(recommendation_support, 3),
+            supporting_models=rec_supporting_models,
+            minority_models=rec_minority_models,
             disagreement=disagreement,
             extracted_claims=claims,
             clusters=clusters,
             judge_verdict=verdict,
             embedding_similarity=round(embedding_sim, 3),
-            majority_vote_component=round(maj_support, 3),
+            majority_vote_component=round(recommendation_support, 3),
             judge_component=round(judge_align, 3),
             embedding_component=round(embedding_sim, 3),
             minority_reports=minority_reports,

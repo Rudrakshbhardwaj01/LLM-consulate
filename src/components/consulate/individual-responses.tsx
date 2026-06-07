@@ -28,9 +28,10 @@ export function IndividualResponses({
 
   if (responses.length === 0) return null;
 
-  const completedCount = responses.filter(
-    (r) => r.status === "complete" && r.content
-  ).length;
+  const completedCount =
+    data.councilResponded ??
+    responses.filter((r) => r.status === "complete" && r.content).length;
+  const totalCount = data.councilTotal ?? responses.length;
 
   return (
     <div className="mt-6 pt-5 border-t border-border-subtle/60">
@@ -47,7 +48,7 @@ export function IndividualResponses({
         <span>
           Inspect individual model responses
           <span className="ml-1.5 text-xs opacity-60">
-            ({completedCount} of {responses.length})
+            ({completedCount} of {totalCount})
           </span>
         </span>
       </button>

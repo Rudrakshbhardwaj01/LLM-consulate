@@ -167,6 +167,10 @@ export interface ConsulateMessageData {
 
   councilResponded?: number;
 
+  topicSupport?: number;
+
+  recommendationSupport?: number;
+
   synthesisDegraded?: boolean;
 
 }

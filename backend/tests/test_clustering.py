@@ -93,6 +93,27 @@ def test_dog_recommendations_reach_majority_not_deadlock():
     assert outcome.value.startswith("consensus")
 
 
+def test_dog_topic_support_high_but_recommendation_support_lower():
+    responses = [
+        _resp("m1", SHIBA, "GPT-OSS"),
+        _resp("m2", FRENCH_BULLDOG, "MiniMax"),
+        _resp("m3", POMERANIAN, "Qwen"),
+        _resp("m4", SHIH_TZU, "Nemotron"),
+        _resp("m5", MALTESE, "Kimi"),
+    ]
+    claims = _claims_for(*responses)
+    clusters, _timing = cluster_positions(claims)
+    majority, _minority, topic_support, _min_support, is_deadlock, outcome, _ = analyze_majority(
+        clusters,
+        prompt=TOKYO_DOG_PROMPT,
+        topic="pets",
+    )
+
+    assert is_deadlock is False
+    assert topic_support >= 0.80
+    assert outcome.value.startswith("consensus")
+
+
 @pytest.mark.asyncio
 async def test_dog_recommendations_engine_finds_consensus():
     engine = AgreementEngine(provider=None, use_llm=False)
@@ -109,7 +130,8 @@ async def test_dog_recommendations_engine_finds_consensus():
     )
 
     assert result.is_deadlock is False
-    assert result.majority_support >= 0.80
+    assert result.topic_support >= 0.80
+    assert result.recommendation_support < 1.0
 
 
 @pytest.mark.parametrize(

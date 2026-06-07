@@ -81,6 +81,10 @@ class ConsulateStreamEvent(BaseModel):
     primary_disagreement: str | None = Field(default=None, alias="primaryDisagreement")
     majority_support: float | None = Field(default=None, alias="majoritySupport")
     minority_support: float | None = Field(default=None, alias="minoritySupport")
+    topic_support: float | None = Field(default=None, alias="topicSupport")
+    recommendation_support: float | None = Field(
+        default=None, alias="recommendationSupport"
+    )
     supporting_models: list[str] | None = Field(default=None, alias="supportingModels")
     minority_models: list[str] | None = Field(default=None, alias="minorityModels")
     disagreement: DisagreementSummary | None = None

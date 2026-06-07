@@ -464,6 +464,13 @@ export function useChat() {
               consulateData.confidenceLevel = event.confidenceLevel as string;
               consulateData.majoritySupport = event.majoritySupport as number;
               consulateData.minoritySupport = event.minoritySupport as number;
+              if (event.topicSupport !== undefined) {
+                consulateData.topicSupport = event.topicSupport as number;
+              }
+              if (event.recommendationSupport !== undefined) {
+                consulateData.recommendationSupport =
+                  event.recommendationSupport as number;
+              }
               consulateData.supportingModels = event.supportingModels as string[];
               consulateData.minorityModels = event.minorityModels as string[];
               consulateData.primaryDisagreement =

@@ -11,8 +11,10 @@ class ExtractedClaims(BaseModel):
     model_id: str = Field(alias="modelId")
     model_name: str = Field(default="", alias="modelName")
     topic: str = ""
+    topic_key: str = Field(default="", alias="topicKey")
     interpretation: str = ""
     position_key: str = Field(default="", alias="positionKey")
+    primary_recommendation: str = Field(default="", alias="primaryRecommendation")
     position_summary: str = Field(default="", alias="positionSummary")
     claims: list[str] = Field(default_factory=list)
     sanitized_text: str = Field(default="", alias="sanitizedText")
@@ -76,6 +78,8 @@ class ConsensusResult(BaseModel):
     primary_disagreement: str = Field(default="", alias="primaryDisagreement")
     majority_support: float = Field(default=0.0, alias="majoritySupport")
     minority_support: float = Field(default=0.0, alias="minoritySupport")
+    topic_support: float = Field(default=0.0, alias="topicSupport")
+    recommendation_support: float = Field(default=0.0, alias="recommendationSupport")
     supporting_models: list[str] = Field(default_factory=list, alias="supportingModels")
     minority_models: list[str] = Field(default_factory=list, alias="minorityModels")
     disagreement: DisagreementSummary | None = None

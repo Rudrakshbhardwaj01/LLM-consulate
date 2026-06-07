@@ -20,6 +20,26 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _has_displayable_response(response: ModelResponse) -> bool:
+    """Matches UI: model_complete with non-empty raw content."""
+    return response.success and bool((response.content or "").strip())
+
+
+def _count_council_responses(
+    results: list[ModelResponse],
+) -> dict[str, int]:
+    displayed = [r for r in results if _has_displayable_response(r)]
+    analysis = [r for r in results if r.success and r.effective_content]
+    timed_out = [r for r in results if r.error and "Timed out" in (r.error or "")]
+    return {
+        "successful": len(displayed),
+        "timed_out": len(timed_out),
+        "failed": len(results) - len(displayed),
+        "displayed": len(displayed),
+        "analysis": len(analysis),
+    }
+
+
 class ConsulateOrchestrator:
     def __init__(
         self,
@@ -253,30 +273,32 @@ class ConsulateOrchestrator:
 
         yield ConsulateStreamEvent(type="stage", stage="analyzing")
 
-        successful = [r for r in results if r.success and r.effective_content]
-        for resp in successful:
+        counts = _count_council_responses(results)
+        displayed_responses = [r for r in results if _has_displayable_response(r)]
+        analysis_responses = [r for r in results if r.success and r.effective_content]
+
+        for resp in displayed_responses:
             logger.info(
                 "consulate.council.response | model=%s | latency_ms=%d | content_chars=%d",
                 resp.model_id,
                 resp.latency_ms,
-                len(resp.effective_content),
+                len(resp.content or ""),
             )
-        timed_out = [r for r in results if r.error and "Timed out" in (r.error or "")]
-        failed_count = len(council_ids) - len(successful)
 
         logger.info(
-            "consulate.council.done | successful=%d | timed_out=%d | failed=%d",
-            len(successful),
-            len(timed_out),
-            failed_count - len(timed_out),
+            "consulate.council.done | successful=%d | timed_out=%d | failed=%d | analysis=%d",
+            counts["successful"],
+            counts["timed_out"],
+            counts["failed"],
+            counts["analysis"],
         )
 
-        if len(successful) < max(1, len(council_ids) // 2):
+        if counts["analysis"] < max(1, len(council_ids) // 2):
             yield ConsulateStreamEvent(type="stage", stage="error")
             yield ConsulateStreamEvent(
                 type="error",
                 message=(
-                    f"Insufficient council responses ({len(successful)} of {len(council_ids)}). "
+                    f"Insufficient council responses ({counts['analysis']} of {len(council_ids)}). "
                     "At least half the council must respond."
                 ),
             )
@@ -285,10 +307,10 @@ class ConsulateOrchestrator:
         yield ConsulateStreamEvent(
             type="council_summary",
             council_total=len(council_ids),
-            council_responded=len(successful),
+            council_responded=counts["displayed"],
             message=(
-                f"{len(successful)} of {len(council_ids)} council members responded"
-                if failed_count
+                f"{counts['displayed']} of {len(council_ids)} council members responded"
+                if counts["displayed"] < len(council_ids)
                 else None
             ),
         )
@@ -306,7 +328,7 @@ class ConsulateOrchestrator:
             use_embeddings_api=self._settings.agreement_use_embeddings,
         )
         agreement_start = time.perf_counter()
-        agreement = await engine.analyze(successful, prompt)
+        agreement = await engine.analyze(analysis_responses, prompt)
         agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
         agreement_timing = agreement.timing
         claims_ms = agreement_timing.claims_ms if agreement_timing else agreement_ms
@@ -331,10 +353,12 @@ class ConsulateOrchestrator:
         )
 
         logger.info(
-            "consulate.agreement | score=%.3f | outcome=%s | vote_support=%.0f%% | deadlock=%s",
+            "consulate.agreement | score=%.3f | outcome=%s | vote_support=%.0f%% | "
+            "topic_support=%.0f%% | deadlock=%s",
             agreement.agreement_score,
             agreement.consensus_outcome,
             agreement.majority_support * 100,
+            agreement.topic_support * 100,
             agreement.is_deadlock,
         )
 
@@ -343,6 +367,8 @@ class ConsulateOrchestrator:
             agreement_score=agreement.agreement_score,
             majority_support=agreement.majority_support,
             minority_support=agreement.minority_support,
+            topic_support=agreement.topic_support,
+            recommendation_support=agreement.recommendation_support,
             supporting_models=agreement.supporting_models,
             minority_models=agreement.minority_models,
             primary_disagreement=agreement.primary_disagreement,
@@ -383,6 +409,15 @@ class ConsulateOrchestrator:
                 message="Council Deadlocked",
             )
 
+            logger.info(
+                "consulate.response_count | successful=%d | timed_out=%d | failed=%d | displayed=%d | analysis=%d",
+                counts["successful"],
+                counts["timed_out"],
+                counts["failed"],
+                counts["displayed"],
+                counts["analysis"],
+            )
+
             fallback_answer = build_structured_deadlock_fallback(agreement)
             synthesis_start = time.perf_counter()
             try:
@@ -394,7 +429,7 @@ class ConsulateOrchestrator:
                     prompt,
                     agreement,
                     synthesis_id,
-                    successful,
+                    analysis_responses,
                 ):
                     yield event
                 synthesis_ms = int((time.perf_counter() - synthesis_start) * 1000)
@@ -435,19 +470,28 @@ class ConsulateOrchestrator:
                 yield ConsulateStreamEvent(type="stage", stage="deadlock")
             return
 
+        logger.info(
+            "consulate.response_count | successful=%d | timed_out=%d | failed=%d | displayed=%d | analysis=%d",
+            counts["successful"],
+            counts["timed_out"],
+            counts["failed"],
+            counts["displayed"],
+            counts["analysis"],
+        )
+
         yield ConsulateStreamEvent(type="stage", stage="synthesizing")
 
-        fallback_answer = build_consensus_fallback(agreement, successful)
+        fallback_answer = build_consensus_fallback(agreement, analysis_responses)
         synthesis_start = time.perf_counter()
         try:
             logger.info(
                 "consulate.synthesis.start | mode=consensus | model=%s | inputs=%d",
                 synthesis_id,
-                len(successful),
+                len(analysis_responses),
             )
             async for event in self._synthesizer.stream_consensus(
                 prompt,
-                successful,
+                analysis_responses,
                 synthesis_id,
                 consensus=agreement,
             ):

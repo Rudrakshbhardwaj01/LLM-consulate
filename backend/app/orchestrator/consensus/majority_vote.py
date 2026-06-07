@@ -1,9 +1,10 @@
 """Majority vote, consensus outcome classification, and semantic disagreement summaries."""
 
 import time
+from collections import Counter
 from enum import StrEnum
 
-from app.orchestrator.consensus.models import PositionCluster
+from app.orchestrator.consensus.models import ExtractedClaims, PositionCluster
 from app.schemas.consulate import DisagreementSummary
 from app.utils.logging import get_logger
 
@@ -92,7 +93,7 @@ def analyze_majority(
 
     majority_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
-        "consulate.majority | winner=%s | vote_support=%.0f%% | outcome=%s | deadlock=%s | tied=%s",
+        "consulate.majority | winner=%s | topic_support=%.0f%% | outcome=%s | deadlock=%s | tied=%s",
         majority.position_key,
         majority_support * 100,
         outcome.value,
@@ -116,6 +117,59 @@ def analyze_majority(
         is_deadlock,
         outcome,
         disagreement,
+    )
+
+
+def analyze_recommendation_vote(
+    claims: list[ExtractedClaims],
+) -> tuple[float, float, str, list[str], list[str]]:
+    """
+    Vote support by specific recommendation, not broad position/topic bucket.
+
+    Returns:
+        recommendation_support, minority_recommendation_support, top_recommendation,
+        supporting_model_names, minority_model_names
+    """
+    if not claims:
+        return 0.0, 0.0, "", [], []
+
+    counts = Counter(
+        claim.primary_recommendation or claim.position_key or "general_recommendation"
+        for claim in claims
+    )
+    total = len(claims)
+    ranked = counts.most_common()
+    top_key, top_count = ranked[0]
+    second_count = ranked[1][1] if len(ranked) > 1 else 0
+
+    recommendation_support = top_count / total
+    minority_recommendation_support = second_count / total
+
+    supporting_models = [
+        claim.model_name
+        for claim in claims
+        if (claim.primary_recommendation or claim.position_key) == top_key
+    ]
+    minority_models = [
+        claim.model_name
+        for claim in claims
+        if (claim.primary_recommendation or claim.position_key) != top_key
+    ]
+
+    logger.debug(
+        "consulate.recommendation_vote | recommendation_support=%.0f%% | "
+        "top_recommendation=%s | distribution=%s",
+        recommendation_support * 100,
+        top_key,
+        ", ".join(f"{key}={count}" for key, count in ranked),
+    )
+
+    return (
+        recommendation_support,
+        minority_recommendation_support,
+        top_key,
+        supporting_models,
+        minority_models,
     )
 
 

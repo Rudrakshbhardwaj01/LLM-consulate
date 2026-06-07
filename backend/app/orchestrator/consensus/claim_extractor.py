@@ -58,6 +58,25 @@ _APARTMENT_FRIENDLY_BREEDS = (
     "cavalier",
 )
 
+# Longest phrases first so "shiba inu" wins over "shiba".
+_PET_RECOMMENDATION_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("cavalier king charles spaniel", "cavalier_king_charles_spaniel"),
+    ("cavalier king charles", "cavalier_king_charles_spaniel"),
+    ("siberian husky", "siberian_husky"),
+    ("shiba inu", "shiba_inu"),
+    ("toy poodle", "toy_poodle"),
+    ("miniature poodle", "toy_poodle"),
+    ("french bulldog", "french_bulldog"),
+    ("shih tzu", "shih_tzu"),
+    ("pomeranian", "pomeranian"),
+    ("maltese", "maltese"),
+    ("shiba", "shiba_inu"),
+    ("poodle", "toy_poodle"),
+    ("frenchie", "french_bulldog"),
+    ("cavalier", "cavalier_king_charles_spaniel"),
+    ("husky", "siberian_husky"),
+)
+
 _APARTMENT_CONTEXT_SIGNALS = (
     "apartment",
     "small space",
@@ -112,7 +131,11 @@ def extract_claims_heuristic(
 ) -> ExtractedClaims:
     """Rule-based claim extraction — always available, no API call."""
     topic = _infer_topic(prompt, sanitized)
+    topic_key = topic
     interpretation, position_key = _infer_interpretation(topic, sanitized)
+    primary_recommendation = _extract_primary_recommendation(
+        topic_key, sanitized, position_key
+    )
     claims = _extract_factual_claims(sanitized)
     position_summary = _build_position_summary(interpretation, claims, sanitized)
 
@@ -120,8 +143,10 @@ def extract_claims_heuristic(
         modelId=response.model_id,
         modelName=response.model_name,
         topic=topic,
+        topicKey=topic_key,
         interpretation=interpretation,
         positionKey=position_key,
+        primaryRecommendation=primary_recommendation,
         positionSummary=position_summary,
         claims=claims,
         sanitizedText=sanitized,
@@ -160,12 +185,17 @@ async def extract_claims_llm(
         interpretation = str(parsed.get("interpretation", "")).strip()
         position_key = _normalize_position_key(interpretation or parsed.get("position_summary", ""))
 
+        topic = str(parsed.get("topic", "")).strip() or _infer_topic(prompt, sanitized)
         return ExtractedClaims(
             modelId=response.model_id,
             modelName=response.model_name,
-            topic=str(parsed.get("topic", "")).strip() or _infer_topic(prompt, sanitized),
+            topic=topic,
+            topicKey=topic,
             interpretation=interpretation,
             positionKey=position_key,
+            primaryRecommendation=_extract_primary_recommendation(
+                topic, sanitized, position_key
+            ),
             positionSummary=str(parsed.get("position_summary", "")).strip(),
             claims=[str(c).strip() for c in parsed.get("claims", []) if str(c).strip()],
             sanitizedText=sanitized,
@@ -235,6 +265,30 @@ async def extract_all_claims(
         batch_ms,
     )
     return [claim for claim in results if claim is not None]
+
+
+def _extract_primary_recommendation(
+    topic_key: str,
+    text: str,
+    position_key: str,
+) -> str:
+    """Specific recommendation slug used for vote support (distinct from position_key)."""
+    lowered = text.lower()
+    if topic_key == "pets":
+        for phrase, key in _PET_RECOMMENDATION_PATTERNS:
+            if phrase in lowered:
+                return key
+        if position_key == "apartment_friendly_pet":
+            return "apartment_friendly_general"
+        if position_key == "active_pet":
+            return "active_pet_general"
+
+    if topic_key == "football" and position_key in {"soccer", "american_football"}:
+        return position_key
+
+    if position_key:
+        return position_key
+    return "general_recommendation"
 
 
 def _infer_topic(prompt: str, text: str) -> str:
