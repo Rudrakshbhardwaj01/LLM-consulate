@@ -3,6 +3,7 @@
 import time
 from dataclasses import dataclass
 
+from app.config.constants import SIMILARITY_MAX_CHARS
 from app.orchestrator.consensus.models import ExtractedClaims, PositionCluster
 from app.orchestrator.similarity import compute_similarity
 from app.utils.logging import get_logger
@@ -69,6 +70,10 @@ def cluster_positions(
     if not claims:
         return [], timing
 
+    logger.info("consulate.cluster.start | claims=%d", len(claims))
+    cluster_start = time.perf_counter()
+    similarity_cache: dict[tuple[str, str], float] = {}
+
     claims_by_id = {claim.model_id: claim for claim in claims}
     clusters: list[PositionCluster] = []
 
@@ -78,7 +83,7 @@ def cluster_positions(
         item_key = _canonical_key(item.position_key)
 
         for cluster in clusters:
-            if _same_cluster(item, item_key, cluster, claims_by_id, timing):
+            if _same_cluster(item, item_key, cluster, claims_by_id, timing, similarity_cache):
                 cluster.model_ids.append(item.model_id)
                 cluster.model_names.append(item.model_name)
                 cluster.count += 1
@@ -99,7 +104,7 @@ def cluster_positions(
     timing.assign_ms = int((time.perf_counter() - assign_start) * 1000)
 
     merge_start = time.perf_counter()
-    clusters = _merge_similar_clusters(clusters, claims_by_id, timing)
+    clusters = _merge_similar_clusters(clusters, claims_by_id, timing, similarity_cache)
     timing.merge_ms = int((time.perf_counter() - merge_start) * 1000)
 
     total = len(claims)
@@ -111,12 +116,19 @@ def cluster_positions(
         "consulate.cluster | clusters=%s",
         ", ".join(f"{c.position_key}={c.count}" for c in clusters),
     )
+    cluster_wall_ms = int((time.perf_counter() - cluster_start) * 1000)
     logger.info(
-        "consulate.timing | stage=cluster | cluster_ms=%d | assign_ms=%d | merge_ms=%d | "
+        "consulate.timing | stage=cluster | cluster_wall_ms=%d | assign_ms=%d | merge_ms=%d | "
         "similarity_ms=%d | comparisons=%d",
-        timing.total_ms,
+        cluster_wall_ms,
         timing.assign_ms,
         timing.merge_ms,
+        timing.similarity_ms,
+        timing.comparisons,
+    )
+    logger.info(
+        "consulate.cluster.end | cluster_wall_ms=%d | similarity_ms=%d | comparisons=%d",
+        cluster_wall_ms,
         timing.similarity_ms,
         timing.comparisons,
     )
@@ -127,6 +139,7 @@ def _merge_similar_clusters(
     clusters: list[PositionCluster],
     claims_by_id: dict[str, ExtractedClaims],
     timing: ClusterTiming,
+    similarity_cache: dict[tuple[str, str], float],
 ) -> list[PositionCluster]:
     """Second pass: merge clusters whose member responses semantically align."""
     if len(clusters) < 2:
@@ -139,7 +152,9 @@ def _merge_similar_clusters(
         while i < len(clusters):
             j = i + 1
             while j < len(clusters):
-                if _clusters_compatible(clusters[i], clusters[j], claims_by_id, timing):
+                if _clusters_compatible(
+                    clusters[i], clusters[j], claims_by_id, timing, similarity_cache
+                ):
                     a, b = clusters[i], clusters[j]
                     a.model_ids.extend(b.model_ids)
                     a.model_names.extend(b.model_names)
@@ -161,6 +176,7 @@ def _clusters_compatible(
     right: PositionCluster,
     claims_by_id: dict[str, ExtractedClaims],
     timing: ClusterTiming,
+    similarity_cache: dict[tuple[str, str], float],
 ) -> bool:
     left_key = _canonical_key(left.position_key)
     right_key = _canonical_key(right.position_key)
@@ -179,7 +195,7 @@ def _clusters_compatible(
     best = 0.0
     for a in left_texts:
         for b in right_texts:
-            best = max(best, _timed_similarity(a, b, timing))
+            best = max(best, _timed_similarity(a, b, timing, similarity_cache))
     return best >= threshold
 
 
@@ -201,6 +217,7 @@ def _same_cluster(
     cluster: PositionCluster,
     claims_by_id: dict[str, ExtractedClaims],
     timing: ClusterTiming,
+    similarity_cache: dict[tuple[str, str], float],
 ) -> bool:
     cluster_key = _canonical_key(cluster.position_key)
 
@@ -212,13 +229,15 @@ def _same_cluster(
 
         if item_key == cluster_key:
             if _is_generic_key(item_key):
-                return _texts_semantically_align(item, cluster, claims_by_id, timing)
+                return _texts_semantically_align(
+                    item, cluster, claims_by_id, timing, similarity_cache
+                )
             return True
 
         if item_key and cluster_key and item_key != cluster_key:
             return False
 
-    return _texts_semantically_align(item, cluster, claims_by_id, timing)
+    return _texts_semantically_align(item, cluster, claims_by_id, timing, similarity_cache)
 
 
 def _texts_semantically_align(
@@ -226,6 +245,7 @@ def _texts_semantically_align(
     cluster: PositionCluster,
     claims_by_id: dict[str, ExtractedClaims],
     timing: ClusterTiming,
+    similarity_cache: dict[tuple[str, str], float],
 ) -> bool:
     item_texts = _claim_text_variants(item)
     member_texts = _cluster_texts(cluster, claims_by_id)
@@ -240,27 +260,38 @@ def _texts_semantically_align(
 
     for left in item_texts:
         for right in member_texts:
-            if _timed_similarity(left, right, timing) >= threshold:
+            if _timed_similarity(left, right, timing, similarity_cache) >= threshold:
                 return True
     return False
 
 
-def _timed_similarity(text_a: str, text_b: str, timing: ClusterTiming) -> float:
+def _timed_similarity(
+    text_a: str,
+    text_b: str,
+    timing: ClusterTiming,
+    similarity_cache: dict[tuple[str, str], float],
+) -> float:
+    key = (text_a, text_b) if text_a <= text_b else (text_b, text_a)
+    cached = similarity_cache.get(key)
+    if cached is not None:
+        return cached
+
     start = time.perf_counter()
     score = compute_similarity(text_a, text_b)
     timing.similarity_ms += int((time.perf_counter() - start) * 1000)
     timing.comparisons += 1
+    similarity_cache[key] = score
     return score
 
 
 def _claim_text_variants(claim: ExtractedClaims) -> list[str]:
     parts: list[str] = []
-    if claim.sanitized_text:
-        parts.append(claim.sanitized_text)
     if claim.position_summary:
-        parts.append(claim.position_summary)
+        parts.append(claim.position_summary[:SIMILARITY_MAX_CHARS])
     if claim.claims:
-        parts.append(" ".join(claim.claims[:4]))
+        parts.append(" ".join(claim.claims[:4])[:SIMILARITY_MAX_CHARS])
+    if claim.sanitized_text:
+        parts.append(claim.sanitized_text[:SIMILARITY_MAX_CHARS])
     return [part for part in parts if part.strip()]
 
 

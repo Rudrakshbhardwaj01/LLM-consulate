@@ -51,14 +51,14 @@ class JudgeVerdict(BaseModel):
 class AgreementTiming(BaseModel):
     """Per-stage latency for agreement analysis (milliseconds)."""
 
-    claim_extraction_ms: int = Field(default=0, alias="claimExtractionMs")
+    claims_ms: int = Field(default=0, alias="claimsMs")
     embeddings_ms: int = Field(default=0, alias="embeddingsMs")
     similarity_ms: int = Field(default=0, alias="similarityMs")
     cluster_ms: int = Field(default=0, alias="clusterMs")
     cluster_merge_ms: int = Field(default=0, alias="clusterMergeMs")
     majority_ms: int = Field(default=0, alias="majorityMs")
     judge_ms: int = Field(default=0, alias="judgeMs")
-    total_ms: int = Field(default=0, alias="totalMs")
+    agreement_ms: int = Field(default=0, alias="agreementMs")
 
     model_config = {"populate_by_name": True}
 

@@ -70,6 +70,7 @@ def analyze_majority(
 
     Agreement score never influences this decision.
     """
+    logger.info("consulate.majority.start")
     start = time.perf_counter()
     if not clusters:
         return None, None, 0.0, 0.0, True, ConsensusOutcome.DEADLOCK, None
@@ -99,6 +100,7 @@ def analyze_majority(
         tied_at_top,
     )
     logger.info("consulate.timing | stage=majority_vote | majority_ms=%d", majority_ms)
+    logger.info("consulate.majority.end | majority_ms=%d", majority_ms)
 
     disagreement = None
     if minority:

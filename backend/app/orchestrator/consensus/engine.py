@@ -51,7 +51,7 @@ class AgreementEngine:
         responses: list[ModelResponse],
         prompt: str,
     ) -> ConsensusResult:
-        start = time.perf_counter()
+        agreement_start = time.perf_counter()
         successful = [r for r in responses if r.success and r.effective_content]
 
         if len(successful) < 2:
@@ -66,6 +66,13 @@ class AgreementEngine:
                 majority_support=1.0,
             )
 
+        logger.info(
+            "consulate.agreement.config | use_llm_claims=%s | use_llm_judge=%s | use_embeddings_api=%s",
+            self._use_llm_claims,
+            self._use_llm_judge,
+            self._use_embeddings_api,
+        )
+
         claims_start = time.perf_counter()
         claims = await extract_all_claims(
             self._provider,
@@ -74,11 +81,13 @@ class AgreementEngine:
             prompt,
             use_llm=self._use_llm_claims,
         )
-        claim_extraction_ms = int((time.perf_counter() - claims_start) * 1000)
+        claims_ms = int((time.perf_counter() - claims_start) * 1000)
 
         cluster_start = time.perf_counter()
         clusters, cluster_timing = cluster_positions(claims)
-        cluster_ms = int((time.perf_counter() - cluster_start) * 1000)
+        cluster_wall_ms = int((time.perf_counter() - cluster_start) * 1000)
+        cluster_ms = max(0, cluster_wall_ms - cluster_timing.similarity_ms)
+        similarity_ms = cluster_timing.similarity_ms
         topic = claims[0].topic if claims else "general"
 
         majority_start = time.perf_counter()
@@ -96,34 +105,50 @@ class AgreementEngine:
         texts = [c.sanitized_text for c in claims]
         need_judge_llm = self._use_llm_judge and is_deadlock
 
-        judge_start = time.perf_counter()
-        embeddings_ms = 0
+        embeddings_start = time.perf_counter()
         if need_judge_llm and self._use_embeddings_api:
-            (embedding_sim, embeddings_ms), verdict = await asyncio.gather(
-                compute_embedding_similarity(
-                    self._provider, texts, self._embedding_model_id, use_api=True
-                ),
-                run_judge(
-                    self._provider, self._judge_model_id, prompt, claims, clusters, use_llm=True
-                ),
-            )
-        elif need_judge_llm:
-            embedding_sim, embeddings_ms = await compute_embedding_similarity(
-                self._provider, texts, self._embedding_model_id, use_api=False
-            )
-            verdict = await run_judge(
-                self._provider, self._judge_model_id, prompt, claims, clusters, use_llm=True
+            embedding_sim, embeddings_inner_ms = await compute_embedding_similarity(
+                self._provider, texts, self._embedding_model_id, use_api=True
             )
         else:
-            embedding_sim, embeddings_ms = await compute_embedding_similarity(
+            embedding_sim, embeddings_inner_ms = await compute_embedding_similarity(
                 self._provider, texts, self._embedding_model_id, use_api=False
             )
+        embeddings_ms = int((time.perf_counter() - embeddings_start) * 1000)
+        if embeddings_inner_ms > embeddings_ms:
+            embeddings_ms = embeddings_inner_ms
+
+        judge_start = time.perf_counter()
+        if need_judge_llm:
             verdict = await run_judge(
-                self._provider, self._judge_model_id, prompt, claims, clusters, use_llm=False
+                self._provider,
+                self._judge_model_id,
+                prompt,
+                claims,
+                clusters,
+                use_llm=True,
+                disagreement=disagreement,
+                majority=majority,
+                minority=minority,
+                majority_support=maj_support,
+                is_deadlock=is_deadlock,
+            )
+        else:
+            verdict = await run_judge(
+                self._provider,
+                self._judge_model_id,
+                prompt,
+                claims,
+                clusters,
+                use_llm=False,
+                disagreement=disagreement,
+                majority=majority,
+                minority=minority,
+                majority_support=maj_support,
+                is_deadlock=is_deadlock,
             )
         judge_ms = int((time.perf_counter() - judge_start) * 1000)
 
-        # Agreement score = confidence in linguistic alignment (never triggers deadlock)
         judge_align = (
             verdict.confidence if verdict.fundamentally_agree else (1.0 - verdict.confidence) * 0.5
         )
@@ -149,41 +174,36 @@ class AgreementEngine:
                     )
 
         primary_disagreement = disagreement.disputed_concept if disagreement else ""
-        total_ms = int((time.perf_counter() - start) * 1000)
+        agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
 
         timing = AgreementTiming(
-            claim_extraction_ms=claim_extraction_ms,
+            claims_ms=claims_ms,
             embeddings_ms=embeddings_ms,
-            similarity_ms=cluster_timing.similarity_ms,
+            similarity_ms=similarity_ms,
             cluster_ms=cluster_ms,
             cluster_merge_ms=cluster_timing.merge_ms,
             majority_ms=majority_ms,
             judge_ms=judge_ms,
-            total_ms=total_ms,
-        )
-
-        logger.info(
-            "consulate.timing | stage=agreement_analysis | claim_extraction_ms=%d | "
-            "embeddings_ms=%d | similarity_ms=%d | cluster_ms=%d | cluster_merge_ms=%d | "
-            "majority_ms=%d | judge_ms=%d | total_ms=%d",
-            claim_extraction_ms,
-            embeddings_ms,
-            cluster_timing.similarity_ms,
-            cluster_ms,
-            cluster_timing.merge_ms,
-            majority_ms,
-            judge_ms,
-            total_ms,
+            agreement_ms=agreement_ms,
         )
 
         logger.info(
             "consulate.consensus.result | outcome=%s | vote_support=%.0f%% | "
-            "agreement_score=%.3f | confidence=%s | deadlock=%s",
+            "agreement_score=%.3f | confidence=%s | deadlock=%s | "
+            "claims_ms=%d | embeddings_ms=%d | similarity_ms=%d | cluster_ms=%d | "
+            "majority_ms=%d | judge_ms=%d | agreement_ms=%d",
             outcome.value,
             maj_support * 100,
             agreement_score,
             conf_level,
             is_deadlock,
+            claims_ms,
+            embeddings_ms,
+            similarity_ms,
+            cluster_ms,
+            majority_ms,
+            judge_ms,
+            agreement_ms,
         )
 
         return ConsensusResult(

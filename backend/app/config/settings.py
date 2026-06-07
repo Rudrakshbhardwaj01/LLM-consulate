@@ -6,6 +6,8 @@ from typing import Self
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.config.constants import COUNCIL_MAX_TOKENS, SYNTHESIS_MAX_TOKENS
+
 # Resolve .env relative to backend/ — not the process working directory.
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = BACKEND_DIR / ".env"
@@ -50,6 +52,15 @@ class Settings(BaseSettings):
     agreement_use_llm_judge: bool = False
     agreement_use_embeddings: bool = False
     agreement_use_llm: bool = False
+
+    council_max_tokens: int = Field(
+        default=COUNCIL_MAX_TOKENS,
+        validation_alias=AliasChoices("COUNCIL_MAX_TOKENS"),
+    )
+    synthesis_max_tokens: int = Field(
+        default=SYNTHESIS_MAX_TOKENS,
+        validation_alias=AliasChoices("SYNTHESIS_MAX_TOKENS"),
+    )
 
     provider_max_retries: int = 3
     provider_timeout_seconds: float = 180.0

@@ -4,6 +4,7 @@ import math
 import re
 from difflib import SequenceMatcher
 
+from app.config.constants import SIMILARITY_MAX_CHARS
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -58,6 +59,8 @@ def compute_similarity(text_a: str, text_b: str) -> float:
     paraphrased but equivalent answers score high while genuinely divergent
     positions score low.
     """
+    text_a = text_a[:SIMILARITY_MAX_CHARS]
+    text_b = text_b[:SIMILARITY_MAX_CHARS]
     norm_a = _normalize(text_a)
     norm_b = _normalize(text_b)
 

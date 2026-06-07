@@ -1,6 +1,12 @@
 from collections.abc import AsyncIterator
 
-from app.config.constants import CONSENSUS_WITH_MINORITY_PROMPT, DEADLOCK_SYNTHESIS_PROMPT, SYNTHESIS_SYSTEM_PROMPT
+from app.config.constants import (
+    CONSENSUS_WITH_MINORITY_PROMPT,
+    DEADLOCK_SYNTHESIS_PROMPT,
+    SYNTHESIS_MAX_TOKENS,
+    SYNTHESIS_SYSTEM_PROMPT,
+)
+from app.config.settings import Settings
 from app.orchestrator.consensus.models import ConsensusResult
 from app.orchestrator.message_guard import assert_messages_within_limit
 from app.orchestrator.synthesis_prompt import (
@@ -19,8 +25,12 @@ logger = get_logger(__name__)
 
 
 class Synthesizer:
-    def __init__(self, provider: NvidiaProvider) -> None:
+    def __init__(self, provider: NvidiaProvider, settings: Settings | None = None) -> None:
         self._provider = provider
+        self._settings = settings
+        self._synthesis_max_tokens = (
+            settings.synthesis_max_tokens if settings is not None else SYNTHESIS_MAX_TOKENS
+        )
 
     def _prepare_messages(
         self,
@@ -72,7 +82,9 @@ class Synthesizer:
 
         full = ""
         async for content, _reasoning in self._provider.stream_chat(
-            synthesis_model_id, messages
+            synthesis_model_id,
+            messages,
+            max_tokens=self._synthesis_max_tokens,
         ):
             if content:
                 full += content
@@ -101,7 +113,9 @@ class Synthesizer:
 
         full = ""
         async for content, _reasoning in self._provider.stream_chat(
-            synthesis_model_id, messages
+            synthesis_model_id,
+            messages,
+            max_tokens=self._synthesis_max_tokens,
         ):
             if content:
                 full += content

@@ -12,10 +12,12 @@ class BaseProvider(Protocol):
         self,
         model_id: str,
         messages: list[ChatMessage],
+        max_tokens: int | None = None,
     ) -> ModelResponse: ...
 
     async def stream_chat(
         self,
         model_id: str,
         messages: list[ChatMessage],
+        max_tokens: int | None = None,
     ) -> AsyncIterator[tuple[str, str | None]]: ...

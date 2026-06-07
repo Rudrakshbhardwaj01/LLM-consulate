@@ -40,7 +40,11 @@ class ConsulateOrchestrator:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
 
-        async for content, reasoning in self._provider.stream_chat(model_id, messages):
+        async for content, reasoning in self._provider.stream_chat(
+            model_id,
+            messages,
+            max_tokens=self._settings.council_max_tokens,
+        ):
             if content:
                 content_parts.append(content)
                 await queue.put(
@@ -305,18 +309,20 @@ class ConsulateOrchestrator:
         agreement = await engine.analyze(successful, prompt)
         agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
         agreement_timing = agreement.timing
-        claim_extraction_ms = agreement_timing.claim_extraction_ms if agreement_timing else agreement_ms
+        claims_ms = agreement_timing.claims_ms if agreement_timing else agreement_ms
         embeddings_ms = agreement_timing.embeddings_ms if agreement_timing else 0
         similarity_ms = agreement_timing.similarity_ms if agreement_timing else 0
         cluster_ms = agreement_timing.cluster_ms if agreement_timing else 0
         majority_ms = agreement_timing.majority_ms if agreement_timing else 0
         judge_ms = agreement_timing.judge_ms if agreement_timing else 0
+        if agreement_timing and agreement_timing.agreement_ms:
+            agreement_ms = agreement_timing.agreement_ms
         logger.info(
             "consulate.timing | stage=agreement_analysis | agreement_ms=%d | "
-            "claim_extraction_ms=%d | embeddings_ms=%d | similarity_ms=%d | "
+            "claims_ms=%d | embeddings_ms=%d | similarity_ms=%d | "
             "cluster_ms=%d | majority_ms=%d | judge_ms=%d",
             agreement_ms,
-            claim_extraction_ms,
+            claims_ms,
             embeddings_ms,
             similarity_ms,
             cluster_ms,
@@ -402,11 +408,13 @@ class ConsulateOrchestrator:
                 )
                 _log_session_telemetry(
                     council_ms=council_ms,
-                    claim_extraction_ms=claim_extraction_ms,
+                    claims_ms=claims_ms,
                     embeddings_ms=embeddings_ms,
                     similarity_ms=similarity_ms,
                     cluster_ms=cluster_ms,
                     majority_ms=majority_ms,
+                    judge_ms=judge_ms,
+                    agreement_ms=agreement_ms,
                     synthesis_ms=synthesis_ms,
                     session_start=session_start,
                 )
@@ -455,11 +463,13 @@ class ConsulateOrchestrator:
             )
             _log_session_telemetry(
                 council_ms=council_ms,
-                claim_extraction_ms=claim_extraction_ms,
+                claims_ms=claims_ms,
                 embeddings_ms=embeddings_ms,
                 similarity_ms=similarity_ms,
                 cluster_ms=cluster_ms,
                 majority_ms=majority_ms,
+                judge_ms=judge_ms,
+                agreement_ms=agreement_ms,
                 synthesis_ms=synthesis_ms,
                 session_start=session_start,
             )
@@ -483,24 +493,29 @@ class ConsulateOrchestrator:
 def _log_session_telemetry(
     *,
     council_ms: int,
-    claim_extraction_ms: int,
+    claims_ms: int,
     embeddings_ms: int,
     similarity_ms: int,
     cluster_ms: int,
     majority_ms: int,
+    judge_ms: int,
+    agreement_ms: int,
     synthesis_ms: int,
     session_start: float,
 ) -> None:
     total_ms = int((time.perf_counter() - session_start) * 1000)
     logger.info(
-        "consulate.telemetry | council_ms=%d | claim_extraction_ms=%d | embeddings_ms=%d | "
-        "similarity_ms=%d | cluster_ms=%d | majority_ms=%d | synthesis_ms=%d | total_ms=%d",
+        "consulate.telemetry | council_ms=%d | claims_ms=%d | embeddings_ms=%d | "
+        "similarity_ms=%d | cluster_ms=%d | majority_ms=%d | judge_ms=%d | "
+        "agreement_ms=%d | synthesis_ms=%d | total_ms=%d",
         council_ms,
-        claim_extraction_ms,
+        claims_ms,
         embeddings_ms,
         similarity_ms,
         cluster_ms,
         majority_ms,
+        judge_ms,
+        agreement_ms,
         synthesis_ms,
         total_ms,
     )

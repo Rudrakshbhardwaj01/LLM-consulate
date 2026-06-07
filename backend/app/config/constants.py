@@ -1,5 +1,12 @@
 SESSION_HEADER = "X-Session-Id"
 
+# Council members answer concisely; synthesis may be longer.
+COUNCIL_MAX_TOKENS = 384
+SYNTHESIS_MAX_TOKENS = 768
+
+# Cap text length for O(N²) lexical similarity during agreement analysis.
+SIMILARITY_MAX_CHARS = 1200
+
 SYNTHESIS_SYSTEM_PROMPT = """You are the Synthesis Engine of LLM Consulate — a council that consults multiple AI models before answering.
 
 You have received independent responses from several council members to the same user question. Produce a single, authoritative consensus answer.

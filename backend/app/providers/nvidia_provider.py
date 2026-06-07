@@ -89,8 +89,11 @@ class NvidiaProvider:
 
     def _build_payload(
 
-        self, model_id: str, messages: list[ChatMessage], stream: bool
-
+        self,
+        model_id: str,
+        messages: list[ChatMessage],
+        stream: bool,
+        max_tokens: int | None = None,
     ) -> dict:
 
         model = get_model(model_id)
@@ -113,9 +116,15 @@ class NvidiaProvider:
 
             "top_p": model.top_p,
 
-            "max_tokens": model.max_tokens,
+            "max_tokens": max_tokens if max_tokens is not None else model.max_tokens,
 
         }
+
+        logger.info(
+            "consulate.tokens | model=%s | max_tokens=%s",
+            model_id,
+            payload["max_tokens"],
+        )
 
         logger.debug(
 
@@ -231,6 +240,8 @@ class NvidiaProvider:
 
         messages: list[ChatMessage],
 
+        max_tokens: int | None = None,
+
     ) -> AsyncIterator[tuple[str, str | None]]:
 
         if not self.is_configured():
@@ -246,7 +257,7 @@ class NvidiaProvider:
 
         url = f"{self._settings.nvidia_base_url.rstrip('/')}/chat/completions"
 
-        payload = self._build_payload(model_id, messages, stream=True)
+        payload = self._build_payload(model_id, messages, stream=True, max_tokens=max_tokens)
 
         max_retries = self._settings.provider_max_retries
 
@@ -482,6 +493,8 @@ class NvidiaProvider:
 
         messages: list[ChatMessage],
 
+        max_tokens: int | None = None,
+
     ) -> ModelResponse:
 
         model = get_model(model_id)
@@ -528,7 +541,9 @@ class NvidiaProvider:
 
         try:
 
-            async for content, reasoning in self.stream_chat(model_id, messages):
+            async for content, reasoning in self.stream_chat(
+                model_id, messages, max_tokens=max_tokens
+            ):
 
                 if content:
 

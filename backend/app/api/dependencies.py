@@ -25,7 +25,7 @@ def get_single_orchestrator() -> SingleModelOrchestrator:
 def get_consulate_orchestrator() -> ConsulateOrchestrator:
     settings = get_settings()
     provider = get_provider()
-    return ConsulateOrchestrator(provider, Synthesizer(provider), settings)
+    return ConsulateOrchestrator(provider, Synthesizer(provider, settings), settings)
 
 
 def get_app_settings() -> Settings:

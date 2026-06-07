@@ -229,7 +229,7 @@ async def extract_all_claims(
     results = await asyncio.gather(*[_extract_one(resp) for resp in responses])
     batch_ms = int((time.perf_counter() - batch_start) * 1000)
     logger.info(
-        "consulate.timing | stage=claim_extraction | models=%d | use_llm=%s | claim_extraction_ms=%d",
+        "consulate.timing | stage=claim_extraction | models=%d | use_llm=%s | claims_ms=%d",
         len(responses),
         use_llm,
         batch_ms,

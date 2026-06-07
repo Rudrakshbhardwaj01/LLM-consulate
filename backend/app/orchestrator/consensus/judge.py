@@ -9,6 +9,7 @@ from app.orchestrator.consensus.models import ExtractedClaims, JudgeVerdict, Pos
 from app.providers.nvidia_provider import NvidiaProvider
 from app.orchestrator.synthesis_prompt import truncate_text
 from app.schemas.chat import ChatMessage
+from app.schemas.consulate import DisagreementSummary
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -46,18 +47,27 @@ async def run_judge(
     claims: list[ExtractedClaims],
     clusters: list[PositionCluster],
     use_llm: bool = True,
+    *,
+    disagreement: DisagreementSummary | None = None,
+    majority: PositionCluster | None = None,
+    minority: PositionCluster | None = None,
+    majority_support: float = 0.0,
+    is_deadlock: bool = False,
 ) -> JudgeVerdict:
     """Run LLM judge or fall back to majority-vote heuristic."""
+    logger.info("consulate.judge.start | use_llm=%s", use_llm)
     start = time.perf_counter()
-    majority, minority, maj_support, min_support, is_deadlock, _outcome, disagreement = (
-        analyze_majority(clusters, prompt=prompt, topic=claims[0].topic if claims else "")
-    )
+
+    if majority is None:
+        majority, minority, majority_support, _min_support, is_deadlock, _outcome, disagreement = (
+            analyze_majority(clusters, prompt=prompt, topic=claims[0].topic if claims else "")
+        )
 
     heuristic = JudgeVerdict(
         fundamentally_agree=not is_deadlock,
         majority_position=majority.position_label if majority else "",
         minority_positions=[minority.position_label] if minority else [],
-        confidence=maj_support if majority else 0.0,
+        confidence=majority_support if majority else 0.0,
         disputed_concept=disagreement.disputed_concept if disagreement else "",
         explanation=disagreement.explanation if disagreement else "",
         source="heuristic",
@@ -67,6 +77,7 @@ async def run_judge(
         judge_ms = int((time.perf_counter() - start) * 1000)
         logger.info("consulate.judge | source=heuristic | confidence=%.3f", heuristic.confidence)
         logger.info("consulate.timing | stage=judge | source=heuristic | judge_ms=%d", judge_ms)
+        logger.info("consulate.judge.end | source=heuristic | judge_ms=%d", judge_ms)
         return heuristic
 
     responses_block = []
@@ -94,11 +105,15 @@ async def run_judge(
         result = await provider.invoke(judge_model_id, messages)
         if not result.success or not result.effective_content:
             logger.warning("consulate.judge | llm_empty | falling back to heuristic")
+            judge_ms = int((time.perf_counter() - start) * 1000)
+            logger.info("consulate.judge.end | source=heuristic_fallback | judge_ms=%d", judge_ms)
             return heuristic
 
         parsed = _parse_json_block(result.effective_content)
         if not parsed:
             logger.warning("consulate.judge | llm_parse_failed | falling back to heuristic")
+            judge_ms = int((time.perf_counter() - start) * 1000)
+            logger.info("consulate.judge.end | source=heuristic_fallback | judge_ms=%d", judge_ms)
             return heuristic
 
         verdict = JudgeVerdict(
@@ -119,12 +134,14 @@ async def run_judge(
             verdict.confidence,
         )
         logger.info("consulate.timing | stage=judge | source=llm | judge_ms=%d", judge_ms)
+        logger.info("consulate.judge.end | source=llm | judge_ms=%d", judge_ms)
         return verdict
 
     except Exception as exc:
         judge_ms = int((time.perf_counter() - start) * 1000)
         logger.warning("consulate.judge | llm_failed | error=%s", exc)
         logger.info("consulate.timing | stage=judge | source=heuristic_fallback | judge_ms=%d", judge_ms)
+        logger.info("consulate.judge.end | source=heuristic_fallback | judge_ms=%d", judge_ms)
         return heuristic
 
 
