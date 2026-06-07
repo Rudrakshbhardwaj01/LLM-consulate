@@ -57,6 +57,7 @@ class ClusterTiming:
 
 def cluster_positions(
     claims: list[ExtractedClaims],
+    request_id: str = "",
 ) -> tuple[list[PositionCluster], ClusterTiming]:
     """
     Group responses by semantic agreement on conclusions.
@@ -70,7 +71,7 @@ def cluster_positions(
     if not claims:
         return [], timing
 
-    logger.info("consulate.cluster.start | claims=%d", len(claims))
+    logger.info("consulate.cluster.start | request_id=%s | claims=%d", request_id or "n/a", len(claims))
     cluster_start = time.perf_counter()
     similarity_cache: dict[tuple[str, str], float] = {}
 

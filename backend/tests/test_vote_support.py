@@ -49,9 +49,12 @@ async def test_different_breeds_same_topic_do_not_inflate_vote_support():
     )
 
     assert result.topic_support == pytest.approx(1.0, abs=0.01)
-    assert result.majority_support == pytest.approx(0.25, abs=0.01)
     assert result.recommendation_support == pytest.approx(0.25, abs=0.01)
+    assert result.majority_support == pytest.approx(0.25, abs=0.01)
     assert result.majority_support < 1.0
+    assert result.is_deadlock is True
+    assert result.consensus_outcome == "deadlock"
+    assert result.confidence_level == "low"
     assert len(result.supporting_models) == 1
 
 
@@ -71,3 +74,5 @@ async def test_two_shiba_increases_recommendation_support():
     assert result.topic_support == pytest.approx(1.0, abs=0.01)
     assert result.recommendation_support == pytest.approx(0.5, abs=0.01)
     assert result.majority_support == pytest.approx(0.5, abs=0.01)
+    assert result.is_deadlock is False
+    assert result.consensus_outcome == "consensus_weak"

@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from collections.abc import AsyncIterator
 
 from app.config.settings import Settings
@@ -7,6 +8,8 @@ from app.models.registry import DEFAULT_SYNTHESIS_MODEL_ID, get_council_members,
 from app.orchestrator.consensus.engine import AgreementEngine
 from app.orchestrator.synthesis_prompt import (
     build_consensus_fallback,
+    build_consensus_user_content,
+    build_deadlock_user_content,
     build_structured_deadlock_fallback,
 )
 from app.orchestrator.synthesizer import Synthesizer
@@ -219,9 +222,11 @@ class ConsulateOrchestrator:
         synthesis_id = synthesis_model_id or self._settings.synthesis_model_id or DEFAULT_SYNTHESIS_MODEL_ID
 
         session_start = time.perf_counter()
+        request_id = uuid.uuid4().hex[:12]
 
         logger.info(
-            "consulate.session.start | council=%s | synthesis=%s | members=%d",
+            "consulate.session.start | request_id=%s | council=%s | synthesis=%s | members=%d",
+            request_id,
             council_ids,
             synthesis_id,
             len(council_ids),
@@ -328,7 +333,7 @@ class ConsulateOrchestrator:
             use_embeddings_api=self._settings.agreement_use_embeddings,
         )
         agreement_start = time.perf_counter()
-        agreement = await engine.analyze(analysis_responses, prompt)
+        agreement = await engine.analyze(analysis_responses, prompt, request_id=request_id)
         agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
         agreement_timing = agreement.timing
         claims_ms = agreement_timing.claims_ms if agreement_timing else agreement_ms
@@ -421,9 +426,21 @@ class ConsulateOrchestrator:
             fallback_answer = build_structured_deadlock_fallback(agreement)
             synthesis_start = time.perf_counter()
             try:
+                deadlock_payload, _payload_meta = build_deadlock_user_content(
+                    prompt, agreement, analysis_responses
+                )
                 logger.info(
-                    "consulate.synthesis.start | mode=deadlock | model=%s",
+                    "consulate.synthesis.start | request_id=%s | mode=deadlock | model=%s | "
+                    "disagreement=%s | payload_chars=%d",
+                    request_id,
                     synthesis_id,
+                    agreement.primary_disagreement or "none",
+                    len(deadlock_payload),
+                )
+                logger.debug(
+                    "consulate.synthesis.payload | request_id=%s | mode=deadlock | payload=%s",
+                    request_id,
+                    deadlock_payload[:2000],
                 )
                 async for event in self._synthesizer.stream_deadlock_summary(
                     prompt,
@@ -484,10 +501,22 @@ class ConsulateOrchestrator:
         fallback_answer = build_consensus_fallback(agreement, analysis_responses)
         synthesis_start = time.perf_counter()
         try:
+            consensus_payload, _payload_meta = build_consensus_user_content(
+                prompt, analysis_responses, agreement
+            )
             logger.info(
-                "consulate.synthesis.start | mode=consensus | model=%s | inputs=%d",
+                "consulate.synthesis.start | request_id=%s | mode=consensus | model=%s | "
+                "inputs=%d | disagreement=%s | payload_chars=%d",
+                request_id,
                 synthesis_id,
                 len(analysis_responses),
+                agreement.primary_disagreement or "none",
+                len(consensus_payload),
+            )
+            logger.debug(
+                "consulate.synthesis.payload | request_id=%s | mode=consensus | payload=%s",
+                request_id,
+                consensus_payload[:2000],
             )
             async for event in self._synthesizer.stream_consensus(
                 prompt,

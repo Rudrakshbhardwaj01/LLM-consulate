@@ -53,9 +53,10 @@ async def run_judge(
     minority: PositionCluster | None = None,
     majority_support: float = 0.0,
     is_deadlock: bool = False,
+    request_id: str = "",
 ) -> JudgeVerdict:
     """Run LLM judge or fall back to majority-vote heuristic."""
-    logger.info("consulate.judge.start | use_llm=%s", use_llm)
+    logger.info("consulate.judge.start | request_id=%s | use_llm=%s", request_id or "n/a", use_llm)
     start = time.perf_counter()
 
     if majority is None:

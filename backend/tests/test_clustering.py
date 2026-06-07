@@ -129,9 +129,10 @@ async def test_dog_recommendations_engine_finds_consensus():
         TOKYO_DOG_PROMPT,
     )
 
-    assert result.is_deadlock is False
+    assert result.is_deadlock is True
     assert result.topic_support >= 0.80
     assert result.recommendation_support < 1.0
+    assert result.consensus_outcome == "deadlock"
 
 
 @pytest.mark.parametrize(

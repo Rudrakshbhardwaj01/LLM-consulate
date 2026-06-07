@@ -215,6 +215,7 @@ async def extract_all_claims(
     responses: list[ModelResponse],
     prompt: str,
     use_llm: bool = True,
+    request_id: str = "",
 ) -> list[ExtractedClaims]:
     """Extract claims for every successful response (LLM calls run in parallel)."""
 
@@ -247,11 +248,15 @@ async def extract_all_claims(
 
         model_ms = int((time.perf_counter() - model_start) * 1000)
         logger.info(
-            "consulate.timing | stage=claim_extraction | model=%s | source=%s | ms=%d | position_key=%s",
+            "consulate.claims.extracted | request_id=%s | model=%s | source=%s | "
+            "topic_key=%s | position_key=%s | recommendation=%s | ms=%d",
+            request_id or "n/a",
             resp.model_id,
             source,
-            model_ms,
+            claims.topic_key,
             claims.position_key,
+            claims.primary_recommendation,
+            model_ms,
         )
         return claims
 
@@ -259,7 +264,9 @@ async def extract_all_claims(
     results = await asyncio.gather(*[_extract_one(resp) for resp in responses])
     batch_ms = int((time.perf_counter() - batch_start) * 1000)
     logger.info(
-        "consulate.timing | stage=claim_extraction | models=%d | use_llm=%s | claims_ms=%d",
+        "consulate.timing | stage=claim_extraction | request_id=%s | models=%d | "
+        "use_llm=%s | claims_ms=%d",
+        request_id or "n/a",
         len(responses),
         use_llm,
         batch_ms,
@@ -292,17 +299,58 @@ def _extract_primary_recommendation(
 
 
 def _infer_topic(prompt: str, text: str) -> str:
-    combined = f"{prompt} {text}".lower()
-    if "football" in combined or "soccer" in combined:
+    """Infer request topic from prompt-first, then response text. Uses word boundaries."""
+    prompt_lower = prompt.lower()
+    text_lower = text.lower()
+
+    if _topic_matches(prompt_lower, ("football", "soccer")) or _topic_matches(
+        text_lower, ("football", "soccer")
+    ):
         return "football"
-    if ("depth" in combined and "breadth" in combined) or "career" in combined:
+    if _topic_matches(prompt_lower, ("career",)) or (
+        _topic_matches(prompt_lower, ("depth", "breadth"))
+        and "depth" in prompt_lower
+        and "breadth" in prompt_lower
+    ):
         return "career"
-    if any(w in combined for w in ("venture capital", "raise funding", "vc ", " vc", "startup funding")):
+    if _topic_matches(
+        prompt_lower,
+        ("venture capital", "raise funding", "startup funding"),
+    ) or _topic_matches(prompt_lower, ("vc",)):
         return "startup_funding"
-    if "invest" in combined or "stock" in combined or "portfolio" in combined:
+    if _topic_matches(prompt_lower, ("invest", "stock", "portfolio")):
         return "investment"
-    if any(w in combined for w in ("dog", "breed", "puppy", "pet", "cat")):
+    if _topic_matches(
+        prompt_lower,
+        ("dog", "breed", "puppy", "pet", "cat", "kitten"),
+    ) or _topic_matches(
+        text_lower,
+        ("dog", "breed", "puppy", "pet", "cat", "kitten"),
+    ):
         return "pets"
+    return "general"
+
+
+def _topic_matches(text: str, keywords: tuple[str, ...]) -> bool:
+    """Match whole words/phrases only — avoids 'pet' inside 'competes' or 'competition'."""
+    for keyword in keywords:
+        if " " in keyword:
+            if keyword in text:
+                return True
+        elif re.search(rf"\b{re.escape(keyword)}s?\b", text):
+            return True
+    return False
+
+
+def resolve_request_topic(prompt: str, claims: list[ExtractedClaims]) -> str:
+    """Topic for this request only — prompt wins; never reuse stale claim topics."""
+    topic = _infer_topic(prompt, "")
+    if topic != "general":
+        return topic
+    for claim in claims:
+        claim_topic = _infer_topic("", claim.sanitized_text)
+        if claim_topic != "general":
+            return claim_topic
     return "general"
 
 

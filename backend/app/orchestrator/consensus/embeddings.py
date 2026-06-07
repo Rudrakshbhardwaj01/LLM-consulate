@@ -15,6 +15,7 @@ async def compute_embedding_similarity(
     texts: list[str],
     embedding_model_id: str,
     use_api: bool = False,
+    request_id: str = "",
 ) -> tuple[float, int]:
     """
     Mean pairwise cosine similarity across response embeddings.
@@ -22,7 +23,12 @@ async def compute_embedding_similarity(
     When ``use_api`` is False (default), uses fast lexical similarity with no
     network call. Enable API only via AGREEMENT_USE_EMBEDDINGS=true.
     """
-    logger.info("consulate.embeddings.start | texts=%d | use_api=%s", len(texts), use_api)
+    logger.info(
+        "consulate.embeddings.start | request_id=%s | texts=%d | use_api=%s",
+        request_id or "n/a",
+        len(texts),
+        use_api,
+    )
     start = time.perf_counter()
     if len(texts) < 2:
         return 1.0, 0

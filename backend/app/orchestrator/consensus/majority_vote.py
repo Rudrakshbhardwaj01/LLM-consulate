@@ -53,6 +53,7 @@ def analyze_majority(
     clusters: list[PositionCluster],
     prompt: str = "",
     topic: str = "",
+    request_id: str = "",
 ) -> tuple[
     PositionCluster | None,
     PositionCluster | None,
@@ -71,7 +72,7 @@ def analyze_majority(
 
     Agreement score never influences this decision.
     """
-    logger.info("consulate.majority.start")
+    logger.info("consulate.majority.start | request_id=%s", request_id or "n/a")
     start = time.perf_counter()
     if not clusters:
         return None, None, 0.0, 0.0, True, ConsensusOutcome.DEADLOCK, None
@@ -93,7 +94,9 @@ def analyze_majority(
 
     majority_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
-        "consulate.majority | winner=%s | topic_support=%.0f%% | outcome=%s | deadlock=%s | tied=%s",
+        "consulate.majority | request_id=%s | winner=%s | topic_support=%.0f%% | "
+        "outcome=%s | deadlock=%s | tied=%s",
+        request_id or "n/a",
         majority.position_key,
         majority_support * 100,
         outcome.value,
@@ -122,16 +125,16 @@ def analyze_majority(
 
 def analyze_recommendation_vote(
     claims: list[ExtractedClaims],
-) -> tuple[float, float, str, list[str], list[str]]:
+) -> tuple[float, float, str, list[str], list[str], bool]:
     """
     Vote support by specific recommendation, not broad position/topic bucket.
 
     Returns:
         recommendation_support, minority_recommendation_support, top_recommendation,
-        supporting_model_names, minority_model_names
+        supporting_model_names, minority_model_names, is_deadlock
     """
     if not claims:
-        return 0.0, 0.0, "", [], []
+        return 0.0, 0.0, "", [], [], True
 
     counts = Counter(
         claim.primary_recommendation or claim.position_key or "general_recommendation"
@@ -144,6 +147,8 @@ def analyze_recommendation_vote(
 
     recommendation_support = top_count / total
     minority_recommendation_support = second_count / total
+    tied_at_top = sum(1 for _, count in ranked if count == top_count) > 1
+    is_deadlock = recommendation_support < MAJORITY_THRESHOLD or tied_at_top
 
     supporting_models = [
         claim.model_name
@@ -158,9 +163,10 @@ def analyze_recommendation_vote(
 
     logger.debug(
         "consulate.recommendation_vote | recommendation_support=%.0f%% | "
-        "top_recommendation=%s | distribution=%s",
+        "top_recommendation=%s | deadlock=%s | distribution=%s",
         recommendation_support * 100,
         top_key,
+        is_deadlock,
         ", ".join(f"{key}={count}" for key, count in ranked),
     )
 
@@ -170,6 +176,7 @@ def analyze_recommendation_vote(
         top_key,
         supporting_models,
         minority_models,
+        is_deadlock,
     )
 
 
@@ -263,7 +270,11 @@ def summarize_disagreement(
     if majority.position_label and minority.position_label:
         maj = majority.position_label.rstrip(".")
         mino = minority.position_label.rstrip(".")
-        if maj.lower() != mino.lower():
+        if (
+            maj.lower() != mino.lower()
+            and _position_label_matches_topic(topic, maj)
+            and _position_label_matches_topic(topic, mino)
+        ):
             return (
                 f"The majority favors {maj.lower()}, while the minority argues for {mino.lower()}."
             )
@@ -272,3 +283,19 @@ def summarize_disagreement(
         "The council holds substantively different interpretations of the question "
         "that lead to different recommendations."
     )
+
+
+_OFF_TOPIC_LABEL_PHRASES = (
+    "pet breed",
+    "pet advice",
+    "apartment-friendly breed",
+    "active/large breed",
+)
+
+
+def _position_label_matches_topic(topic: str, label: str) -> bool:
+    """Reject misclassified labels (e.g. pet wording on a non-pet question)."""
+    if topic == "pets":
+        return True
+    lowered = label.lower()
+    return not any(phrase in lowered for phrase in _OFF_TOPIC_LABEL_PHRASES)
