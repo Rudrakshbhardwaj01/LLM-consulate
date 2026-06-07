@@ -1,5 +1,6 @@
 "use client";
 
+import { deriveDisplayStage } from "@/lib/consulate/stage";
 import { cn } from "@/lib/utils";
 import type { ConsulateMessageData, ConsulateStage } from "@/types/chat";
 import { AnimatePresence, motion } from "framer-motion";
@@ -48,6 +49,21 @@ function StatusDot({
           <span>Complete</span>
         </span>
       );
+    case "completed":
+      return (
+        <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+          <Check className="w-3 h-3" />
+          <span>Complete</span>
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="flex items-center gap-1.5 text-muted">
+          <X className="w-3 h-3" />
+          <span>Failed</span>
+        </span>
+      );
+    case "running":
     case "streaming":
       return (
         <span className="flex items-center gap-1.5 text-accent">
@@ -88,7 +104,7 @@ interface ConsulateProgressProps {
 }
 
 export function ConsulateProgress({ data, isStreaming }: ConsulateProgressProps) {
-  const stage = data.currentStage ?? "initializing";
+  const stage = deriveDisplayStage(data);
   const isDeadlock = data.isDeadlock || stage === "deadlock";
   const flow = isDeadlock ? DEADLOCK_FLOW : STAGE_FLOW;
   const currentIdx = stageIndex(stage, isDeadlock);

@@ -14,6 +14,7 @@ _INCOMPATIBLE_KEYS = (
     frozenset({"depth_first", "context_dependent"}),
     frozenset({"breadth_first", "context_dependent"}),
     frozenset({"pro_vc", "anti_vc"}),
+    frozenset({"apartment_friendly_pet", "active_pet"}),
 )
 
 _KEY_ALIASES: dict[str, str] = {
@@ -21,18 +22,36 @@ _KEY_ALIASES: dict[str, str] = {
     "association_football": "soccer",
 }
 
+_GENERIC_KEYS = frozenset(
+    {
+        "general",
+        "general_position",
+        "general_recommendation",
+        "general_investment",
+        "context_dependent",
+        "balanced_career",
+    }
+)
+
+# Merge when full-response semantic similarity exceeds this threshold.
+_SIMILARITY_MERGE_THRESHOLD = 0.58
+# Slightly relaxed when both sides use generic interpretation keys.
+_GENERIC_SIMILARITY_THRESHOLD = 0.52
+
 
 def cluster_positions(claims: list[ExtractedClaims]) -> list[PositionCluster]:
     """
-    Group responses by canonical position_key.
+    Group responses by semantic agreement on conclusions.
 
-    Clustering is driven by extracted interpretation keys (majority vote input),
-    not surface text similarity, so paraphrases cluster together but genuinely
-    different interpretations (soccer vs american football) stay separate.
+    Uses interpretation keys when they are canonical and distinct, then falls
+    back to composite text similarity so paraphrased recommendations cluster
+    together even when surface wording differs (e.g. different dog breeds with
+    the same apartment-friendly conclusion).
     """
     if not claims:
         return []
 
+    claims_by_id = {claim.model_id: claim for claim in claims}
     clusters: list[PositionCluster] = []
 
     for item in claims:
@@ -40,7 +59,7 @@ def cluster_positions(claims: list[ExtractedClaims]) -> list[PositionCluster]:
         item_key = _canonical_key(item.position_key)
 
         for cluster in clusters:
-            if _same_cluster(item, item_key, cluster):
+            if _same_cluster(item, item_key, cluster, claims_by_id):
                 cluster.model_ids.append(item.model_id)
                 cluster.model_names.append(item.model_name)
                 cluster.count += 1
@@ -59,6 +78,8 @@ def cluster_positions(claims: list[ExtractedClaims]) -> list[PositionCluster]:
                 )
             )
 
+    clusters = _merge_similar_clusters(clusters, claims_by_id)
+
     total = len(claims)
     for cluster in clusters:
         cluster.support = round(cluster.count / total, 3)
@@ -71,36 +92,144 @@ def cluster_positions(claims: list[ExtractedClaims]) -> list[PositionCluster]:
     return clusters
 
 
+def _merge_similar_clusters(
+    clusters: list[PositionCluster],
+    claims_by_id: dict[str, ExtractedClaims],
+) -> list[PositionCluster]:
+    """Second pass: merge clusters whose member responses semantically align."""
+    if len(clusters) < 2:
+        return clusters
+
+    merged = True
+    while merged:
+        merged = False
+        i = 0
+        while i < len(clusters):
+            j = i + 1
+            while j < len(clusters):
+                if _clusters_compatible(clusters[i], clusters[j], claims_by_id):
+                    a, b = clusters[i], clusters[j]
+                    a.model_ids.extend(b.model_ids)
+                    a.model_names.extend(b.model_names)
+                    a.count += b.count
+                    if len(b.position_summary) > len(a.position_summary):
+                        a.position_summary = b.position_summary
+                        a.position_label = b.position_label
+                    clusters.pop(j)
+                    merged = True
+                else:
+                    j += 1
+            i += 1
+
+    return clusters
+
+
+def _clusters_compatible(
+    left: PositionCluster,
+    right: PositionCluster,
+    claims_by_id: dict[str, ExtractedClaims],
+) -> bool:
+    left_key = _canonical_key(left.position_key)
+    right_key = _canonical_key(right.position_key)
+    if left_key and right_key and left_key != right_key:
+        pair = frozenset({left_key, right_key})
+        for incompatible in _INCOMPATIBLE_KEYS:
+            if pair == incompatible or pair.issuperset(incompatible):
+                return False
+
+    left_texts = _cluster_texts(left, claims_by_id)
+    right_texts = _cluster_texts(right, claims_by_id)
+    threshold = _GENERIC_SIMILARITY_THRESHOLD
+    if left_key and right_key and left_key == right_key and not _is_generic_key(left_key):
+        threshold = _SIMILARITY_MERGE_THRESHOLD
+
+    best = 0.0
+    for a in left_texts:
+        for b in right_texts:
+            best = max(best, compute_similarity(a, b))
+    return best >= threshold
+
+
 def _canonical_key(key: str) -> str:
     return _KEY_ALIASES.get(key, key)
+
+
+def _is_generic_key(key: str) -> bool:
+    if not key:
+        return True
+    if key in _GENERIC_KEYS:
+        return True
+    return key.startswith("general_")
 
 
 def _same_cluster(
     item: ExtractedClaims,
     item_key: str,
     cluster: PositionCluster,
+    claims_by_id: dict[str, ExtractedClaims],
 ) -> bool:
     cluster_key = _canonical_key(cluster.position_key)
 
     if item_key and cluster_key:
-        if item_key == cluster_key:
-            return True
-        # Explicit incompatible interpretations — never merge
         pair = frozenset({item_key, cluster_key})
         for incompatible in _INCOMPATIBLE_KEYS:
             if pair == incompatible or pair.issuperset(incompatible):
                 return False
+
+        if item_key == cluster_key:
+            if _is_generic_key(item_key):
+                return _texts_semantically_align(item, cluster, claims_by_id)
+            return True
+
+        if item_key and cluster_key and item_key != cluster_key:
+            return False
+
+    return _texts_semantically_align(item, cluster, claims_by_id)
+
+
+def _texts_semantically_align(
+    item: ExtractedClaims,
+    cluster: PositionCluster,
+    claims_by_id: dict[str, ExtractedClaims],
+) -> bool:
+    item_texts = _claim_text_variants(item)
+    member_texts = _cluster_texts(cluster, claims_by_id)
+    if not item_texts or not member_texts:
         return False
 
-    # No reliable key — fall back to full response text similarity
-    if item.sanitized_text:
-        for other in _claims_in_cluster(cluster):
-            if compute_similarity(item.sanitized_text, other) >= 0.72:
-                return True
+    threshold = _GENERIC_SIMILARITY_THRESHOLD
+    item_key = _canonical_key(item.position_key)
+    cluster_key = _canonical_key(cluster.position_key)
+    if item_key and cluster_key and item_key == cluster_key and not _is_generic_key(item_key):
+        threshold = _SIMILARITY_MERGE_THRESHOLD
 
+    for left in item_texts:
+        for right in member_texts:
+            if compute_similarity(left, right) >= threshold:
+                return True
     return False
 
 
-def _claims_in_cluster(cluster: PositionCluster) -> list[str]:
-    # Position summary alone is not stored per member; use summary as proxy
-    return [cluster.position_summary] if cluster.position_summary else []
+def _claim_text_variants(claim: ExtractedClaims) -> list[str]:
+    parts: list[str] = []
+    if claim.sanitized_text:
+        parts.append(claim.sanitized_text)
+    if claim.position_summary:
+        parts.append(claim.position_summary)
+    if claim.claims:
+        parts.append(" ".join(claim.claims[:4]))
+    return [part for part in parts if part.strip()]
+
+
+def _cluster_texts(
+    cluster: PositionCluster,
+    claims_by_id: dict[str, ExtractedClaims],
+) -> list[str]:
+    texts: list[str] = []
+    for model_id in cluster.model_ids:
+        claim = claims_by_id.get(model_id)
+        if claim:
+            texts.extend(_claim_text_variants(claim))
+    if cluster.position_summary:
+        texts.append(cluster.position_summary)
+    return texts

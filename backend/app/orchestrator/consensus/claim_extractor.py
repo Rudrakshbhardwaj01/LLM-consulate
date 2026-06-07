@@ -1,5 +1,6 @@
 """Extract structured claims and interpretations from council responses."""
 
+import asyncio
 import json
 import re
 
@@ -143,13 +144,12 @@ async def extract_all_claims(
     prompt: str,
     use_llm: bool = True,
 ) -> list[ExtractedClaims]:
-    """Extract claims for every successful response."""
-    extracted: list[ExtractedClaims] = []
+    """Extract claims for every successful response (LLM calls run in parallel)."""
 
-    for resp in responses:
+    async def _extract_one(resp: ModelResponse) -> ExtractedClaims | None:
         sanitized = sanitize_council_content(resp.content, resp.reasoning)
         if not sanitized:
-            continue
+            return None
 
         claims: ExtractedClaims | None = None
         if use_llm and provider is not None:
@@ -169,9 +169,10 @@ async def extract_all_claims(
                 len(claims.claims),
             )
 
-        extracted.append(claims)
+        return claims
 
-    return extracted
+    results = await asyncio.gather(*[_extract_one(resp) for resp in responses])
+    return [claim for claim in results if claim is not None]
 
 
 def _infer_topic(prompt: str, text: str) -> str:
@@ -184,6 +185,8 @@ def _infer_topic(prompt: str, text: str) -> str:
         return "startup_funding"
     if "invest" in combined or "stock" in combined or "portfolio" in combined:
         return "investment"
+    if any(w in combined for w in ("dog", "breed", "puppy", "pet", "cat")):
+        return "pets"
     return "general"
 
 
@@ -222,7 +225,43 @@ def _infer_interpretation(topic: str, text: str) -> tuple[str, str]:
             return "Raise venture capital for growth", "pro_vc"
         return "Funding strategy depends on context", "context_dependent"
 
-    return "general position", _normalize_position_key(text[:120])
+    if topic == "pets":
+        return _infer_pets_interpretation(lowered)
+
+    return "general position", "general_position"
+
+
+def _infer_pets_interpretation(lowered: str) -> tuple[str, str]:
+    if any(
+        phrase in lowered
+        for phrase in (
+            "not ideal",
+            "not recommended",
+            "not suited",
+            "not suitable",
+            "avoid",
+            "poor choice",
+            "does not work",
+        )
+    ) and any(word in lowered for word in ("apartment", "small space", "compact", "urban")):
+        return "Active/large breed recommendation", "active_pet"
+
+    apartment_signals = (
+        "apartment", "small space", "small living", "compact", "urban", "tokyo",
+        "city", "low maintenance", "small breed", "apartment-friendly",
+    )
+    active_signals = (
+        "high energy", "large breed", "yard", "suburban", "needs space", "working dog",
+        "substantial outdoor",
+    )
+    apartment_score = sum(1 for signal in apartment_signals if signal in lowered)
+    active_score = sum(1 for signal in active_signals if signal in lowered)
+
+    if apartment_score > active_score:
+        return "Apartment-friendly breed recommendation", "apartment_friendly_pet"
+    if active_score > apartment_score:
+        return "Active/large breed recommendation", "active_pet"
+    return "General pet breed recommendation", "general_recommendation"
 
 
 def _infer_career_interpretation(lowered: str) -> tuple[str, str]:

@@ -7,7 +7,7 @@ import { MinorityReportPanel } from "@/components/consulate/minority-report";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types/chat";
 import { motion } from "framer-motion";
-import { AlertCircle, AlertTriangle, User } from "lucide-react";
+import { AlertCircle, User } from "lucide-react";
 import { MessageActions } from "./message-actions";
 
 interface MessageBubbleProps {
@@ -72,7 +72,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                   : "bg-accent/10 text-accent"
               )}
             >
-              {isDeadlock ? "Deadlock Summary" : outcomeLabel}
+              {isDeadlock ? "Split Views" : outcomeLabel}
             </span>
           )}
 
@@ -111,11 +111,47 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
           />
         )}
 
+        {message.content ? (
+          <div className="min-h-[1.5rem]">
+            <MarkdownRenderer content={message.content} />
+          </div>
+        ) : message.isStreaming ? (
+          <div className="flex items-center gap-2 text-sm text-muted py-1 min-h-[1.5rem]">
+            <span className="inline-flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle [animation-delay:0.2s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle [animation-delay:0.4s]" />
+            </span>
+          </div>
+        ) : null}
+
+        {isDeadlock &&
+          !message.isStreaming &&
+          message.content &&
+          data?.agreementScore !== undefined && (
+            <div className="mt-5 rounded-xl p-4 ring-1 ring-border-subtle bg-surface-overlay/30">
+              <p className="text-sm font-medium text-foreground">
+                Council held different views
+              </p>
+              <p className="text-xs text-muted mt-1">
+                Vote support: {((data.majoritySupport ?? 0) * 100).toFixed(0)}%
+                {" · "}
+                Agreement score: {(data.agreementScore * 100).toFixed(0)}%
+              </p>
+              {data.primaryDisagreement && (
+                <p className="text-sm mt-2 text-muted">
+                  <span className="text-foreground/80">Where they differed: </span>
+                  {data.primaryDisagreement}
+                </p>
+              )}
+            </div>
+          )}
+
         {!isDeadlock &&
           !message.isStreaming &&
           data?.agreementScore !== undefined &&
           message.content && (
-            <div className="mb-5 rounded-xl p-4 ring-1 ring-accent/20 bg-accent/[0.04]">
+            <div className="mt-5 rounded-xl p-4 ring-1 ring-accent/20 bg-accent/[0.04]">
               <p className="text-sm font-medium text-accent">{outcomeLabel}</p>
               <p className="text-xs text-muted mt-1">
                 Vote Support:{" "}
@@ -147,47 +183,6 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
               )}
             </div>
           )}
-
-        {isDeadlock &&
-          !message.isStreaming &&
-          message.content &&
-          data?.agreementScore !== undefined && (
-            <div className="mb-5 rounded-xl p-4 ring-1 ring-[var(--accent-warm)]/25 bg-[var(--accent-warm)]/[0.04]">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-[var(--accent-warm)] shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-[var(--accent-warm)]">
-                    Council Deadlocked
-                  </p>
-                  <p className="text-xs text-muted mt-1">
-                    Vote Support: {((data.majoritySupport ?? 0) * 100).toFixed(0)}%
-                    {" · "}
-                    Agreement Score: {(data.agreementScore * 100).toFixed(0)}%
-                  </p>
-                  {data.primaryDisagreement && (
-                    <p className="text-sm mt-2">
-                      <span className="text-muted">Primary disagreement: </span>
-                      {data.primaryDisagreement}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-        {message.content ? (
-          <div className="min-h-[1.5rem]">
-            <MarkdownRenderer content={message.content} />
-          </div>
-        ) : message.isStreaming ? (
-          <div className="flex items-center gap-2 text-sm text-muted py-1 min-h-[1.5rem]">
-            <span className="inline-flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle" />
-              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle [animation-delay:0.2s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse-subtle [animation-delay:0.4s]" />
-            </span>
-          </div>
-        ) : null}
 
         {!isUser && (
           <MessageActions

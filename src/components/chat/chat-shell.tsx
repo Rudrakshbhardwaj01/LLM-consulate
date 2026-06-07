@@ -59,7 +59,7 @@ export function ChatShell() {
             </div>
           </header>
 
-          <div className="sm:hidden flex items-center gap-2 px-4 py-2 border-b border-border-subtle">
+          <div className="sm:hidden shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border-subtle">
             <ModeSelector />
             <ModelPicker />
           </div>
@@ -90,7 +90,7 @@ export function ChatShell() {
             )}
           </div>
 
-          <Composer onSend={sendMessage} />
+          <Composer onSend={sendMessage} className="sticky bottom-0 z-20" />
         </div>
       </div>
     </TooltipProvider>

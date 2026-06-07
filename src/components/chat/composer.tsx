@@ -9,9 +9,10 @@ import { useCallback, useRef, useState } from "react";
 
 interface ComposerProps {
   onSend: (content: string) => void;
+  className?: string;
 }
 
-export function Composer({ onSend }: ComposerProps) {
+export function Composer({ onSend, className }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isGenerating } = useChatStore();
@@ -41,7 +42,12 @@ export function Composer({ onSend }: ComposerProps) {
   };
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface/80 backdrop-blur-sm p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div
+      className={cn(
+        "shrink-0 border-t border-border bg-surface/95 backdrop-blur-sm p-4 pb-[max(1rem,env(safe-area-inset-bottom))]",
+        className
+      )}
+    >
       <div className="max-w-3xl mx-auto">
         <div
           className={cn(

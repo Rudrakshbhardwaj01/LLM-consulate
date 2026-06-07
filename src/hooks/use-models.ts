@@ -1,7 +1,7 @@
 "use client";
 
 import { apiUrl } from "@/lib/api-client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export interface ModelInfo {
   id: string;
@@ -38,6 +38,23 @@ type ApiModel = {
   supportsReasoning?: boolean;
 };
 
+const FALLBACK_MODELS: ModelInfo[] = [
+  {
+    id: "gpt-oss-120b",
+    displayName: "GPT-OSS 120B",
+    provider: "nvidia",
+    role: "Chief Analyst",
+    description: "Default council member",
+    contextLimit: 8192,
+    capabilities: ["chat"],
+    consulateEligible: true,
+    family: "OpenAI",
+    tags: [],
+    openSource: true,
+    supportsReasoning: true,
+  },
+];
+
 function mapModel(m: ApiModel): ModelInfo | null {
   if (!m.id) return null;
 
@@ -57,10 +74,26 @@ function mapModel(m: ApiModel): ModelInfo | null {
   };
 }
 
+function parseModelsPayload(data: unknown): ModelInfo[] {
+  const payload = data as { models?: unknown };
+  const raw = Array.isArray(payload?.models) ? payload.models : [];
+  return raw
+    .map((entry) => mapModel(entry as ApiModel))
+    .filter((model): model is ModelInfo => model !== null);
+}
+
 export function useModels() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setReloadToken((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,17 +105,24 @@ export function useModels() {
         }
         return res.json();
       })
-      .then((data: { models?: ApiModel[] }) => {
+      .then((data: unknown) => {
         if (cancelled) return;
-        const parsed = (data?.models ?? [])
-          .map(mapModel)
-          .filter((model): model is ModelInfo => model !== null);
-        setModels(parsed);
-        setError(parsed.length === 0 ? "No models returned from API" : null);
+        const parsed = parseModelsPayload(data);
+        if (parsed.length === 0) {
+          setModels(FALLBACK_MODELS);
+          setUsingFallback(true);
+          setError("Using default council — model list was empty.");
+        } else {
+          setModels(parsed);
+          setUsingFallback(false);
+          setError(null);
+        }
         setLoading(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        setModels(FALLBACK_MODELS);
+        setUsingFallback(true);
         setError(err instanceof Error ? err.message : "Failed to fetch models");
         setLoading(false);
       });
@@ -90,11 +130,11 @@ export function useModels() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadToken]);
 
   const consulateModels = models.filter((m) => m.consulateEligible);
 
-  return { models, consulateModels, loading, error };
+  return { models, consulateModels, loading, error, usingFallback, reload };
 }
 
 export function formatModelMeta(model: ModelInfo): string {

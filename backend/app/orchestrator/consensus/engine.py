@@ -66,6 +66,7 @@ class AgreementEngine:
                 majority_support=1.0,
             )
 
+        claims_start = time.perf_counter()
         claims = await extract_all_claims(
             self._provider,
             self._judge_model_id,
@@ -73,8 +74,11 @@ class AgreementEngine:
             prompt,
             use_llm=self._use_llm_claims,
         )
+        claims_ms = int((time.perf_counter() - claims_start) * 1000)
 
+        cluster_start = time.perf_counter()
         clusters = cluster_positions(claims)
+        cluster_ms = int((time.perf_counter() - cluster_start) * 1000)
         topic = claims[0].topic if claims else "general"
 
         # Primary: majority vote determines consensus vs deadlock
@@ -91,6 +95,7 @@ class AgreementEngine:
         texts = [c.sanitized_text for c in claims]
         need_judge_llm = self._use_llm_judge and is_deadlock
 
+        judge_start = time.perf_counter()
         if need_judge_llm and self._use_embeddings_api:
             embedding_sim, verdict = await asyncio.gather(
                 compute_embedding_similarity(
@@ -114,6 +119,7 @@ class AgreementEngine:
             verdict = await run_judge(
                 self._provider, self._judge_model_id, prompt, claims, clusters, use_llm=False
             )
+        judge_ms = int((time.perf_counter() - judge_start) * 1000)
 
         # Agreement score = confidence in linguistic alignment (never triggers deadlock)
         judge_align = (
@@ -144,12 +150,16 @@ class AgreementEngine:
 
         logger.info(
             "consulate.consensus.result | outcome=%s | vote_support=%.0f%% | "
-            "agreement_score=%.3f | confidence=%s | deadlock=%s | total_ms=%d",
+            "agreement_score=%.3f | confidence=%s | deadlock=%s | "
+            "claims_ms=%d | cluster_ms=%d | judge_ms=%d | total_ms=%d",
             outcome.value,
             maj_support * 100,
             agreement_score,
             conf_level,
             is_deadlock,
+            claims_ms,
+            cluster_ms,
+            judge_ms,
             int((time.perf_counter() - start) * 1000),
         )
 

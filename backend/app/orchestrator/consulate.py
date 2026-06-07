@@ -194,6 +194,8 @@ class ConsulateOrchestrator:
         council_ids = model_ids or [m.id for m in get_council_members()]
         synthesis_id = synthesis_model_id or self._settings.synthesis_model_id or DEFAULT_SYNTHESIS_MODEL_ID
 
+        session_start = time.perf_counter()
+
         logger.info(
             "consulate.session.start | council=%s | synthesis=%s | members=%d",
             council_ids,
@@ -211,6 +213,8 @@ class ConsulateOrchestrator:
             yield ConsulateStreamEvent(
                 type="model_status", model_id=model_id, model_status="pending"
             )
+
+        council_start = time.perf_counter()
 
         queue: asyncio.Queue[ConsulateStreamEvent | None] = asyncio.Queue()
         results: list[ModelResponse] = []
@@ -239,6 +243,11 @@ class ConsulateOrchestrator:
             yield event
 
         await gather_task
+
+        council_ms = int((time.perf_counter() - council_start) * 1000)
+        logger.info("consulate.timing | stage=council_collection | council_ms=%d", council_ms)
+
+        yield ConsulateStreamEvent(type="stage", stage="analyzing")
 
         successful = [r for r in results if r.success and r.effective_content]
         for resp in successful:
@@ -280,8 +289,6 @@ class ConsulateOrchestrator:
             ),
         )
 
-        yield ConsulateStreamEvent(type="stage", stage="analyzing")
-
         engine = AgreementEngine(
             provider=self._provider,
             judge_model_id=self._settings.judge_model_id,
@@ -294,7 +301,13 @@ class ConsulateOrchestrator:
             ),
             use_embeddings_api=self._settings.agreement_use_embeddings,
         )
+        agreement_start = time.perf_counter()
         agreement = await engine.analyze(successful, prompt)
+        agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
+        logger.info(
+            "consulate.timing | stage=agreement_analysis | agreement_ms=%d",
+            agreement_ms,
+        )
 
         logger.info(
             "consulate.agreement | score=%.3f | outcome=%s | vote_support=%.0f%% | deadlock=%s",
@@ -363,9 +376,17 @@ class ConsulateOrchestrator:
                     successful,
                 ):
                     yield event
+                synthesis_ms = int((time.perf_counter() - synthesis_start) * 1000)
                 logger.info(
                     "consulate.synthesis.complete | mode=deadlock | latency_ms=%d",
-                    int((time.perf_counter() - synthesis_start) * 1000),
+                    synthesis_ms,
+                )
+                logger.info(
+                    "consulate.timing | council_ms=%d | agreement_ms=%d | synthesis_ms=%d | total_ms=%d",
+                    council_ms,
+                    agreement_ms,
+                    synthesis_ms,
+                    int((time.perf_counter() - session_start) * 1000),
                 )
                 yield ConsulateStreamEvent(type="stage", stage="deadlock")
             except Exception as exc:
@@ -401,9 +422,17 @@ class ConsulateOrchestrator:
                 consensus=agreement,
             ):
                 yield event
+            synthesis_ms = int((time.perf_counter() - synthesis_start) * 1000)
             logger.info(
                 "consulate.synthesis.complete | mode=consensus | latency_ms=%d",
-                int((time.perf_counter() - synthesis_start) * 1000),
+                synthesis_ms,
+            )
+            logger.info(
+                "consulate.timing | council_ms=%d | agreement_ms=%d | synthesis_ms=%d | total_ms=%d",
+                council_ms,
+                agreement_ms,
+                synthesis_ms,
+                int((time.perf_counter() - session_start) * 1000),
             )
             yield ConsulateStreamEvent(type="stage", stage="complete")
         except Exception as exc:

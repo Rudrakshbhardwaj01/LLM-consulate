@@ -58,7 +58,7 @@ function ModelPickerSkeleton() {
 }
 
 export function ModelPicker() {
-  const { models, loading, error } = useModels();
+  const { models, loading, error, usingFallback, reload } = useModels();
   const {
     mode,
     selectedModelId,
@@ -111,40 +111,49 @@ export function ModelPicker() {
 
   const selectedModel = models.find((m) => m.id === selectedModelId);
 
-  const label =
-    mode === "direct"
-      ? selectedModel?.displayName ?? "Select model"
-      : `${selectedModelIds.length} models selected`;
-
   if (loading) return <ModelPickerSkeleton />;
 
-  if (error) {
+  const hasModels = models.length > 0;
+
+  if (!hasModels) {
     return (
-      <div className="flex items-center gap-2 text-sm text-[var(--accent-warm)] px-3 py-2">
+      <button
+        type="button"
+        onClick={reload}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-overlay/60 text-sm text-muted hover:text-foreground"
+      >
         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-        <span className="truncate">Models unavailable</span>
-      </div>
+        <span>Retry loading models</span>
+      </button>
     );
   }
 
-  if (models.length === 0) {
-    return (
-      <div className="text-sm text-muted px-3 py-2">
-        No models available. Configure a provider.
-      </div>
-    );
-  }
+  const label =
+    mode === "direct"
+      ? selectedModel?.displayName ?? models[0]?.displayName ?? "Select model"
+      : `${Math.max(selectedModelIds.length, 1)} models selected`;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative min-w-0">
+      {error && (
+        <p className="sr-only">{error}</p>
+      )}
       <button
         onClick={() => setOpen(!open)}
         disabled={isGenerating}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-overlay/60 text-sm hover:bg-surface-overlay transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        title={error ?? undefined}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-overlay/60 text-sm hover:bg-surface-overlay transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-full"
       >
-        <span className="truncate max-w-[200px]">{label}</span>
+        <span className="truncate max-w-[12rem] sm:max-w-[14rem] md:max-w-[16rem]">
+          {label}
+        </span>
+        {usingFallback && (
+          <span className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
+            Fallback
+          </span>
+        )}
         <ChevronDown
           className={cn(
             "w-3.5 h-3.5 text-muted transition-transform shrink-0",
@@ -168,25 +177,38 @@ export function ModelPicker() {
                 Select council models
               </p>
             )}
-            {displayModels.map((model) => (
-              <ModelItem
-                key={model.id}
-                model={model}
-                selected={
-                  mode === "direct"
-                    ? selectedModelId === model.id
-                    : selectedModelIds.includes(model.id)
-                }
-                onSelect={() => {
-                  if (mode === "direct") {
-                    setSelectedModelId(model.id);
-                    setOpen(false);
-                  } else {
-                    toggleModelId(model.id);
+            {displayModels.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-muted space-y-2">
+                <p>No models matched this mode.</p>
+                <button
+                  type="button"
+                  onClick={reload}
+                  className="text-accent hover:underline"
+                >
+                  Refresh model list
+                </button>
+              </div>
+            ) : (
+              displayModels.map((model) => (
+                <ModelItem
+                  key={model.id}
+                  model={model}
+                  selected={
+                    mode === "direct"
+                      ? selectedModelId === model.id
+                      : selectedModelIds.includes(model.id)
                   }
-                }}
-              />
-            ))}
+                  onSelect={() => {
+                    if (mode === "direct") {
+                      setSelectedModelId(model.id);
+                      setOpen(false);
+                    } else {
+                      toggleModelId(model.id);
+                    }
+                  }}
+                />
+              ))
+            )}
           </motion.div>
         )}
       </AnimatePresence>

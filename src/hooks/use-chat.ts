@@ -1,6 +1,7 @@
 "use client";
 
 import { apiUrl, getSessionHeaders } from "@/lib/api-client";
+import { advanceStageWhenCouncilComplete } from "@/lib/consulate/stage";
 import { generateId } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -345,6 +346,13 @@ export function useChat() {
             flushRaf = requestAnimationFrame(flushConsulateUpdate);
           };
 
+          const markCouncilProgress = (immediate = false) => {
+            if (advanceStageWhenCouncilComplete(consulateData)) {
+              immediate = true;
+            }
+            scheduleConsulateUpdate(immediate);
+          };
+
           await consumeSSE(response, (event) => {
             const type = event.type as string;
             let immediate = false;
@@ -374,7 +382,8 @@ export function useChat() {
                 modelInfo
               );
               resp.status = modelStatus;
-              immediate = true;
+              markCouncilProgress(true);
+              return;
             }
 
             if (type === "model_chunk") {
@@ -404,7 +413,8 @@ export function useChat() {
                 resp.reasoning = event.reasoning as string;
               }
               resp.status = "complete";
-              immediate = true;
+              markCouncilProgress(true);
+              return;
             }
 
             if (type === "model_error") {
@@ -415,10 +425,8 @@ export function useChat() {
                 modelInfo
               );
               resp.error = event.error as string;
-              if (resp.status !== "timeout") {
-                resp.status = "error";
-              }
-              immediate = true;
+              markCouncilProgress(true);
+              return;
             }
 
             if (type === "synthesis_chunk") {
