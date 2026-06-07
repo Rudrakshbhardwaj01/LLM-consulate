@@ -63,7 +63,7 @@ def test_dog_recommendations_cluster_by_shared_conclusion():
         _resp("m6", HUSKY, "Gemma"),
     ]
     claims = _claims_for(*responses)
-    clusters = cluster_positions(claims)
+    clusters, _timing = cluster_positions(claims)
 
     assert len(clusters) == 2
     assert clusters[0].count == 5
@@ -81,7 +81,7 @@ def test_dog_recommendations_reach_majority_not_deadlock():
         _resp("m6", HUSKY, "Gemma"),
     ]
     claims = _claims_for(*responses)
-    clusters = cluster_positions(claims)
+    clusters, _timing = cluster_positions(claims)
     majority, _minority, maj_support, _min_support, is_deadlock, outcome, _ = analyze_majority(
         clusters,
         prompt=TOKYO_DOG_PROMPT,
@@ -110,3 +110,97 @@ async def test_dog_recommendations_engine_finds_consensus():
 
     assert result.is_deadlock is False
     assert result.majority_support >= 0.80
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_key"),
+    [
+        (
+            "For Tokyo apartment living, the Shiba Inu is an excellent choice. Compact size, "
+            "adapts well indoors, though they enjoy daily walks.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "The Shiba Inu is not suited to sedentary owners but works well in Tokyo apartments "
+            "with daily walks.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "While not ideal for tiny apartments, the Shiba Inu remains the best Tokyo choice "
+            "for active urban owners.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "I recommend the Toy Poodle for Tokyo apartments. Small, intelligent, low shedding, "
+            "and well-suited to urban life.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "For Tokyo living, the Toy Poodle is excellent. Not ideal if you want a guard dog, "
+            "but perfect for apartments.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "The French Bulldog is ideal for apartment life in Tokyo — moderate exercise, quiet, "
+            "and compact.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "French Bulldogs are not suited to extreme heat but are ideal for Tokyo apartment life.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "A Cavalier King Charles Spaniel fits Tokyo apartment living well due to its gentle "
+            "temperament and moderate size.",
+            "apartment_friendly_pet",
+        ),
+        (
+            "A Siberian Husky is not ideal for small Tokyo apartments due to high energy and "
+            "space needs.",
+            "active_pet",
+        ),
+    ],
+)
+def test_tokyo_dog_breed_classification(content: str, expected_key: str):
+    claims = extract_claims_heuristic(
+        _resp("m1", content, "Model"),
+        content,
+        TOKYO_DOG_PROMPT,
+    )
+    assert claims.position_key == expected_key
+
+
+def test_tokyo_apartment_breeds_form_majority_cluster():
+    responses = [
+        _resp(
+            "m1",
+            "The Shiba Inu is not suited to sedentary owners but works well in Tokyo apartments.",
+            "GPT-OSS",
+        ),
+        _resp(
+            "m2",
+            "For Tokyo living, the Toy Poodle is excellent and perfect for apartments.",
+            "MiniMax",
+        ),
+        _resp(
+            "m3",
+            "French Bulldogs are not suited to extreme heat but are ideal for Tokyo apartment life.",
+            "Qwen",
+        ),
+        _resp(
+            "m4",
+            "A Cavalier King Charles Spaniel fits Tokyo apartment living well indoors.",
+            "Nemotron",
+        ),
+        _resp(
+            "m5",
+            "A Siberian Husky is not ideal for small Tokyo apartments due to high energy.",
+            "Gemma",
+        ),
+    ]
+    claims = _claims_for(*responses)
+    clusters, _timing = cluster_positions(claims)
+
+    assert clusters[0].position_key == "apartment_friendly_pet"
+    assert clusters[0].count == 4
+    assert clusters[1].position_key == "active_pet"

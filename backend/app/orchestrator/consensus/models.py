@@ -48,6 +48,21 @@ class JudgeVerdict(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AgreementTiming(BaseModel):
+    """Per-stage latency for agreement analysis (milliseconds)."""
+
+    claim_extraction_ms: int = Field(default=0, alias="claimExtractionMs")
+    embeddings_ms: int = Field(default=0, alias="embeddingsMs")
+    similarity_ms: int = Field(default=0, alias="similarityMs")
+    cluster_ms: int = Field(default=0, alias="clusterMs")
+    cluster_merge_ms: int = Field(default=0, alias="clusterMergeMs")
+    majority_ms: int = Field(default=0, alias="majorityMs")
+    judge_ms: int = Field(default=0, alias="judgeMs")
+    total_ms: int = Field(default=0, alias="totalMs")
+
+    model_config = {"populate_by_name": True}
+
+
 class ConsensusResult(BaseModel):
     """Final output of the agreement engine."""
 
@@ -72,5 +87,6 @@ class ConsensusResult(BaseModel):
     judge_component: float = Field(default=0.0, alias="judgeComponent")
     embedding_component: float = Field(default=0.0, alias="embeddingComponent")
     minority_reports: list[MinorityReport] = Field(default_factory=list)
+    timing: AgreementTiming | None = None
 
     model_config = {"populate_by_name": True}

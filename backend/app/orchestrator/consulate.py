@@ -304,9 +304,24 @@ class ConsulateOrchestrator:
         agreement_start = time.perf_counter()
         agreement = await engine.analyze(successful, prompt)
         agreement_ms = int((time.perf_counter() - agreement_start) * 1000)
+        agreement_timing = agreement.timing
+        claim_extraction_ms = agreement_timing.claim_extraction_ms if agreement_timing else agreement_ms
+        embeddings_ms = agreement_timing.embeddings_ms if agreement_timing else 0
+        similarity_ms = agreement_timing.similarity_ms if agreement_timing else 0
+        cluster_ms = agreement_timing.cluster_ms if agreement_timing else 0
+        majority_ms = agreement_timing.majority_ms if agreement_timing else 0
+        judge_ms = agreement_timing.judge_ms if agreement_timing else 0
         logger.info(
-            "consulate.timing | stage=agreement_analysis | agreement_ms=%d",
+            "consulate.timing | stage=agreement_analysis | agreement_ms=%d | "
+            "claim_extraction_ms=%d | embeddings_ms=%d | similarity_ms=%d | "
+            "cluster_ms=%d | majority_ms=%d | judge_ms=%d",
             agreement_ms,
+            claim_extraction_ms,
+            embeddings_ms,
+            similarity_ms,
+            cluster_ms,
+            majority_ms,
+            judge_ms,
         )
 
         logger.info(
@@ -378,15 +393,22 @@ class ConsulateOrchestrator:
                     yield event
                 synthesis_ms = int((time.perf_counter() - synthesis_start) * 1000)
                 logger.info(
-                    "consulate.synthesis.complete | mode=deadlock | latency_ms=%d",
+                    "consulate.timing | stage=synthesis | mode=deadlock | synthesis_ms=%d",
                     synthesis_ms,
                 )
                 logger.info(
-                    "consulate.timing | council_ms=%d | agreement_ms=%d | synthesis_ms=%d | total_ms=%d",
-                    council_ms,
-                    agreement_ms,
+                    "consulate.synthesis.complete | mode=deadlock | latency_ms=%d",
                     synthesis_ms,
-                    int((time.perf_counter() - session_start) * 1000),
+                )
+                _log_session_telemetry(
+                    council_ms=council_ms,
+                    claim_extraction_ms=claim_extraction_ms,
+                    embeddings_ms=embeddings_ms,
+                    similarity_ms=similarity_ms,
+                    cluster_ms=cluster_ms,
+                    majority_ms=majority_ms,
+                    synthesis_ms=synthesis_ms,
+                    session_start=session_start,
                 )
                 yield ConsulateStreamEvent(type="stage", stage="deadlock")
             except Exception as exc:
@@ -424,15 +446,22 @@ class ConsulateOrchestrator:
                 yield event
             synthesis_ms = int((time.perf_counter() - synthesis_start) * 1000)
             logger.info(
-                "consulate.synthesis.complete | mode=consensus | latency_ms=%d",
+                "consulate.timing | stage=synthesis | mode=consensus | synthesis_ms=%d",
                 synthesis_ms,
             )
             logger.info(
-                "consulate.timing | council_ms=%d | agreement_ms=%d | synthesis_ms=%d | total_ms=%d",
-                council_ms,
-                agreement_ms,
+                "consulate.synthesis.complete | mode=consensus | latency_ms=%d",
                 synthesis_ms,
-                int((time.perf_counter() - session_start) * 1000),
+            )
+            _log_session_telemetry(
+                council_ms=council_ms,
+                claim_extraction_ms=claim_extraction_ms,
+                embeddings_ms=embeddings_ms,
+                similarity_ms=similarity_ms,
+                cluster_ms=cluster_ms,
+                majority_ms=majority_ms,
+                synthesis_ms=synthesis_ms,
+                session_start=session_start,
             )
             yield ConsulateStreamEvent(type="stage", stage="complete")
         except Exception as exc:
@@ -449,3 +478,29 @@ class ConsulateOrchestrator:
                 synthesis_degraded=True,
             )
             yield ConsulateStreamEvent(type="stage", stage="complete")
+
+
+def _log_session_telemetry(
+    *,
+    council_ms: int,
+    claim_extraction_ms: int,
+    embeddings_ms: int,
+    similarity_ms: int,
+    cluster_ms: int,
+    majority_ms: int,
+    synthesis_ms: int,
+    session_start: float,
+) -> None:
+    total_ms = int((time.perf_counter() - session_start) * 1000)
+    logger.info(
+        "consulate.telemetry | council_ms=%d | claim_extraction_ms=%d | embeddings_ms=%d | "
+        "similarity_ms=%d | cluster_ms=%d | majority_ms=%d | synthesis_ms=%d | total_ms=%d",
+        council_ms,
+        claim_extraction_ms,
+        embeddings_ms,
+        similarity_ms,
+        cluster_ms,
+        majority_ms,
+        synthesis_ms,
+        total_ms,
+    )

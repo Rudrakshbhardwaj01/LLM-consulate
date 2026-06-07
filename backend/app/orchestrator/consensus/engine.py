@@ -12,7 +12,7 @@ from app.orchestrator.consensus.majority_vote import (
     confidence_label,
     outcome_display_label,
 )
-from app.orchestrator.consensus.models import ConsensusResult
+from app.orchestrator.consensus.models import AgreementTiming, ConsensusResult
 from app.orchestrator.consensus.position_clusterer import cluster_positions
 from app.providers.nvidia_provider import NvidiaProvider
 from app.schemas.consulate import MinorityReport
@@ -74,14 +74,14 @@ class AgreementEngine:
             prompt,
             use_llm=self._use_llm_claims,
         )
-        claims_ms = int((time.perf_counter() - claims_start) * 1000)
+        claim_extraction_ms = int((time.perf_counter() - claims_start) * 1000)
 
         cluster_start = time.perf_counter()
-        clusters = cluster_positions(claims)
+        clusters, cluster_timing = cluster_positions(claims)
         cluster_ms = int((time.perf_counter() - cluster_start) * 1000)
         topic = claims[0].topic if claims else "general"
 
-        # Primary: majority vote determines consensus vs deadlock
+        majority_start = time.perf_counter()
         (
             majority,
             minority,
@@ -91,13 +91,15 @@ class AgreementEngine:
             outcome,
             disagreement,
         ) = analyze_majority(clusters, prompt=prompt, topic=topic)
+        majority_ms = int((time.perf_counter() - majority_start) * 1000)
 
         texts = [c.sanitized_text for c in claims]
         need_judge_llm = self._use_llm_judge and is_deadlock
 
         judge_start = time.perf_counter()
+        embeddings_ms = 0
         if need_judge_llm and self._use_embeddings_api:
-            embedding_sim, verdict = await asyncio.gather(
+            (embedding_sim, embeddings_ms), verdict = await asyncio.gather(
                 compute_embedding_similarity(
                     self._provider, texts, self._embedding_model_id, use_api=True
                 ),
@@ -106,14 +108,14 @@ class AgreementEngine:
                 ),
             )
         elif need_judge_llm:
-            embedding_sim = await compute_embedding_similarity(
+            embedding_sim, embeddings_ms = await compute_embedding_similarity(
                 self._provider, texts, self._embedding_model_id, use_api=False
             )
             verdict = await run_judge(
                 self._provider, self._judge_model_id, prompt, claims, clusters, use_llm=True
             )
         else:
-            embedding_sim = await compute_embedding_similarity(
+            embedding_sim, embeddings_ms = await compute_embedding_similarity(
                 self._provider, texts, self._embedding_model_id, use_api=False
             )
             verdict = await run_judge(
@@ -147,20 +149,41 @@ class AgreementEngine:
                     )
 
         primary_disagreement = disagreement.disputed_concept if disagreement else ""
+        total_ms = int((time.perf_counter() - start) * 1000)
+
+        timing = AgreementTiming(
+            claim_extraction_ms=claim_extraction_ms,
+            embeddings_ms=embeddings_ms,
+            similarity_ms=cluster_timing.similarity_ms,
+            cluster_ms=cluster_ms,
+            cluster_merge_ms=cluster_timing.merge_ms,
+            majority_ms=majority_ms,
+            judge_ms=judge_ms,
+            total_ms=total_ms,
+        )
+
+        logger.info(
+            "consulate.timing | stage=agreement_analysis | claim_extraction_ms=%d | "
+            "embeddings_ms=%d | similarity_ms=%d | cluster_ms=%d | cluster_merge_ms=%d | "
+            "majority_ms=%d | judge_ms=%d | total_ms=%d",
+            claim_extraction_ms,
+            embeddings_ms,
+            cluster_timing.similarity_ms,
+            cluster_ms,
+            cluster_timing.merge_ms,
+            majority_ms,
+            judge_ms,
+            total_ms,
+        )
 
         logger.info(
             "consulate.consensus.result | outcome=%s | vote_support=%.0f%% | "
-            "agreement_score=%.3f | confidence=%s | deadlock=%s | "
-            "claims_ms=%d | cluster_ms=%d | judge_ms=%d | total_ms=%d",
+            "agreement_score=%.3f | confidence=%s | deadlock=%s",
             outcome.value,
             maj_support * 100,
             agreement_score,
             conf_level,
             is_deadlock,
-            claims_ms,
-            cluster_ms,
-            judge_ms,
-            int((time.perf_counter() - start) * 1000),
         )
 
         return ConsensusResult(
@@ -185,6 +208,7 @@ class AgreementEngine:
             judge_component=round(judge_align, 3),
             embedding_component=round(embedding_sim, 3),
             minority_reports=minority_reports,
+            timing=timing,
         )
 
 

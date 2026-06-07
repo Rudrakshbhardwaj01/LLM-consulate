@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import time
 
 from app.orchestrator.content_sanitizer import sanitize_council_content
 from app.orchestrator.consensus.models import ExtractedClaims
@@ -42,6 +43,47 @@ _AMERICAN_FOOTBALL_SIGNALS = (
     "field goal",
     "yard line",
     "oval ball",
+)
+
+_APARTMENT_FRIENDLY_BREEDS = (
+    "shiba inu",
+    "shiba",
+    "toy poodle",
+    "miniature poodle",
+    "poodle",
+    "french bulldog",
+    "frenchie",
+    "cavalier king charles spaniel",
+    "cavalier king charles",
+    "cavalier",
+)
+
+_APARTMENT_CONTEXT_SIGNALS = (
+    "apartment",
+    "small space",
+    "small living",
+    "compact",
+    "urban",
+    "tokyo",
+    "city",
+    "indoors",
+    "indoor",
+)
+
+_APARTMENT_UNSUITABLE_PATTERNS = (
+    re.compile(
+        r"not (?:ideal|recommended|suited|suitable|good) (?:\w+ ){0,5}"
+        r"for (?:a )?(?:small |tiny |urban )?apartments?"
+    ),
+    re.compile(
+        r"not (?:ideal|recommended|suited|suitable) "
+        r"for (?:small |compact |urban )(?:living|spaces?|homes?)"
+    ),
+    re.compile(
+        r"(?:avoid|poor choice|does not work(?: well)?|not suited) "
+        r"(?:\w+ ){0,8}(?:for )?(?:a )?(?:small |tiny )?apartments?"
+    ),
+    re.compile(r"not ideal for small tokyo apartments"),
 )
 
 _SOCCER_SIGNALS = (
@@ -147,13 +189,17 @@ async def extract_all_claims(
     """Extract claims for every successful response (LLM calls run in parallel)."""
 
     async def _extract_one(resp: ModelResponse) -> ExtractedClaims | None:
+        model_start = time.perf_counter()
         sanitized = sanitize_council_content(resp.content, resp.reasoning)
         if not sanitized:
             return None
 
         claims: ExtractedClaims | None = None
+        source = "heuristic"
         if use_llm and provider is not None:
             claims = await extract_claims_llm(provider, judge_model_id, resp, sanitized, prompt)
+            if claims is not None:
+                source = "llm"
 
         if claims is None:
             claims = extract_claims_heuristic(resp, sanitized, prompt)
@@ -169,9 +215,25 @@ async def extract_all_claims(
                 len(claims.claims),
             )
 
+        model_ms = int((time.perf_counter() - model_start) * 1000)
+        logger.info(
+            "consulate.timing | stage=claim_extraction | model=%s | source=%s | ms=%d | position_key=%s",
+            resp.model_id,
+            source,
+            model_ms,
+            claims.position_key,
+        )
         return claims
 
+    batch_start = time.perf_counter()
     results = await asyncio.gather(*[_extract_one(resp) for resp in responses])
+    batch_ms = int((time.perf_counter() - batch_start) * 1000)
+    logger.info(
+        "consulate.timing | stage=claim_extraction | models=%d | use_llm=%s | claim_extraction_ms=%d",
+        len(responses),
+        use_llm,
+        batch_ms,
+    )
     return [claim for claim in results if claim is not None]
 
 
@@ -232,19 +294,11 @@ def _infer_interpretation(topic: str, text: str) -> tuple[str, str]:
 
 
 def _infer_pets_interpretation(lowered: str) -> tuple[str, str]:
-    if any(
-        phrase in lowered
-        for phrase in (
-            "not ideal",
-            "not recommended",
-            "not suited",
-            "not suitable",
-            "avoid",
-            "poor choice",
-            "does not work",
-        )
-    ) and any(word in lowered for word in ("apartment", "small space", "compact", "urban")):
+    if _is_apartment_unsuitable_recommendation(lowered):
         return "Active/large breed recommendation", "active_pet"
+
+    if _recommends_apartment_friendly_breed(lowered) or _has_positive_apartment_endorsement(lowered):
+        return "Apartment-friendly breed recommendation", "apartment_friendly_pet"
 
     apartment_signals = (
         "apartment", "small space", "small living", "compact", "urban", "tokyo",
@@ -262,6 +316,52 @@ def _infer_pets_interpretation(lowered: str) -> tuple[str, str]:
     if active_score > apartment_score:
         return "Active/large breed recommendation", "active_pet"
     return "General pet breed recommendation", "general_recommendation"
+
+
+def _is_apartment_unsuitable_recommendation(lowered: str) -> bool:
+    """True only when the response argues the breed is a poor fit for apartment living."""
+    if not any(pattern.search(lowered) for pattern in _APARTMENT_UNSUITABLE_PATTERNS):
+        return False
+    if _endorses_apartment_living(lowered):
+        return False
+    return True
+
+
+def _endorses_apartment_living(lowered: str) -> bool:
+    """True when the response ultimately recommends apartment or Tokyo living."""
+    has_context = any(signal in lowered for signal in _APARTMENT_CONTEXT_SIGNALS)
+    if not has_context:
+        return False
+
+    endorsement_patterns = (
+        re.compile(r"\b(?:recommend|excellent|best|great|perfect|works well|good choice|top pick)\b"),
+        re.compile(r"well[- ]suited"),
+        re.compile(r"\bfits\b"),
+        re.compile(r"strong fit"),
+        re.compile(r"suited to"),
+        re.compile(r"(?<!\bnot )\bideal for (?:apartment|tokyo|urban|city|indoor)"),
+        re.compile(r"perfect for (?:apartment|urban|city|tokyo|indoor)"),
+        re.compile(
+            r"(?<!\bnot )(?:excellent|best|great|perfect) (?:\w+ ){0,4}(?:for )?"
+            r"(?:tokyo|apartment|urban|city)"
+        ),
+    )
+    return any(pattern.search(lowered) for pattern in endorsement_patterns)
+
+
+def _has_positive_apartment_endorsement(lowered: str) -> bool:
+    return _endorses_apartment_living(lowered)
+
+
+def _recommends_apartment_friendly_breed(lowered: str) -> bool:
+    mentions_breed = any(breed in lowered for breed in _APARTMENT_FRIENDLY_BREEDS)
+    if not mentions_breed:
+        return False
+    negates_breed = any(
+        phrase in lowered
+        for phrase in ("not recommend", "avoid", "do not get", "don't get", "stay away from")
+    )
+    return _endorses_apartment_living(lowered) and not negates_breed
 
 
 def _infer_career_interpretation(lowered: str) -> tuple[str, str]:

@@ -1,5 +1,6 @@
 """Majority vote, consensus outcome classification, and semantic disagreement summaries."""
 
+import time
 from enum import StrEnum
 
 from app.orchestrator.consensus.models import PositionCluster
@@ -69,6 +70,7 @@ def analyze_majority(
 
     Agreement score never influences this decision.
     """
+    start = time.perf_counter()
     if not clusters:
         return None, None, 0.0, 0.0, True, ConsensusOutcome.DEADLOCK, None
 
@@ -87,6 +89,7 @@ def analyze_majority(
     is_deadlock = majority_support < MAJORITY_THRESHOLD or tied_at_top
     outcome = classify_outcome(majority_support, is_deadlock)
 
+    majority_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
         "consulate.majority | winner=%s | vote_support=%.0f%% | outcome=%s | deadlock=%s | tied=%s",
         majority.position_key,
@@ -95,6 +98,7 @@ def analyze_majority(
         is_deadlock,
         tied_at_top,
     )
+    logger.info("consulate.timing | stage=majority_vote | majority_ms=%d", majority_ms)
 
     disagreement = None
     if minority:

@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 
 from app.orchestrator.consensus.majority_vote import analyze_majority
 from app.orchestrator.consensus.models import ExtractedClaims, JudgeVerdict, PositionCluster
@@ -47,6 +48,7 @@ async def run_judge(
     use_llm: bool = True,
 ) -> JudgeVerdict:
     """Run LLM judge or fall back to majority-vote heuristic."""
+    start = time.perf_counter()
     majority, minority, maj_support, min_support, is_deadlock, _outcome, disagreement = (
         analyze_majority(clusters, prompt=prompt, topic=claims[0].topic if claims else "")
     )
@@ -62,7 +64,9 @@ async def run_judge(
     )
 
     if not use_llm or provider is None or not provider.is_configured():
+        judge_ms = int((time.perf_counter() - start) * 1000)
         logger.info("consulate.judge | source=heuristic | confidence=%.3f", heuristic.confidence)
+        logger.info("consulate.timing | stage=judge | source=heuristic | judge_ms=%d", judge_ms)
         return heuristic
 
     responses_block = []
@@ -108,15 +112,19 @@ async def run_judge(
             explanation=str(parsed.get("explanation", heuristic.explanation)),
             source="llm",
         )
+        judge_ms = int((time.perf_counter() - start) * 1000)
         logger.info(
             "consulate.judge | source=llm | agree=%s | confidence=%.3f",
             verdict.fundamentally_agree,
             verdict.confidence,
         )
+        logger.info("consulate.timing | stage=judge | source=llm | judge_ms=%d", judge_ms)
         return verdict
 
     except Exception as exc:
+        judge_ms = int((time.perf_counter() - start) * 1000)
         logger.warning("consulate.judge | llm_failed | error=%s", exc)
+        logger.info("consulate.timing | stage=judge | source=heuristic_fallback | judge_ms=%d", judge_ms)
         return heuristic
 
 
