@@ -16,6 +16,7 @@ from app.config.settings import Settings
 
 from app.models.registry import get_model
 
+from app.orchestrator.message_guard import assert_messages_within_limit, ensure_message_list
 from app.schemas.chat import ChatMessage
 
 from app.schemas.provider import ModelResponse
@@ -240,7 +241,8 @@ class NvidiaProvider:
 
             )
 
-
+        messages = ensure_message_list(messages)
+        assert_messages_within_limit(messages)
 
         url = f"{self._settings.nvidia_base_url.rstrip('/')}/chat/completions"
 

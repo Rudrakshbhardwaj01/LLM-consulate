@@ -41,7 +41,7 @@ export function Composer({ onSend }: ComposerProps) {
   };
 
   return (
-    <div className="border-t border-border bg-surface/80 backdrop-blur-sm p-4">
+    <div className="shrink-0 border-t border-border bg-surface/80 backdrop-blur-sm p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="max-w-3xl mx-auto">
         <div
           className={cn(

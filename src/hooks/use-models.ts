@@ -19,18 +19,18 @@ export interface ModelInfo {
 }
 
 type ApiModel = {
-  id: string;
+  id?: string;
   display_name?: string;
   displayName?: string;
-  provider: string;
-  role: string;
-  description: string;
+  provider?: string;
+  role?: string;
+  description?: string;
   context_limit?: number;
   contextLimit?: number;
-  capabilities: string[];
+  capabilities?: string[];
   consulate_eligible?: boolean;
   consulateEligible?: boolean;
-  family: string;
+  family?: string;
   tags?: string[];
   open_source?: boolean;
   openSource?: boolean;
@@ -38,18 +38,20 @@ type ApiModel = {
   supportsReasoning?: boolean;
 };
 
-function mapModel(m: ApiModel): ModelInfo {
+function mapModel(m: ApiModel): ModelInfo | null {
+  if (!m.id) return null;
+
   return {
     id: m.id,
     displayName: m.display_name ?? m.displayName ?? m.id,
-    provider: m.provider,
-    role: m.role,
-    description: m.description,
+    provider: m.provider ?? "nvidia",
+    role: m.role ?? "",
+    description: m.description ?? "",
     contextLimit: m.context_limit ?? m.contextLimit ?? 4096,
-    capabilities: m.capabilities,
-    consulateEligible: m.consulate_eligible ?? m.consulateEligible ?? false,
-    family: m.family,
-    tags: m.tags ?? [],
+    capabilities: Array.isArray(m.capabilities) ? m.capabilities : ["chat"],
+    consulateEligible: m.consulate_eligible ?? m.consulateEligible ?? true,
+    family: m.family ?? "",
+    tags: Array.isArray(m.tags) ? m.tags : [],
     openSource: m.open_source ?? m.openSource ?? true,
     supportsReasoning: m.supports_reasoning ?? m.supportsReasoning ?? false,
   };
@@ -61,19 +63,33 @@ export function useModels() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     fetch(apiUrl("/models"))
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch models");
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch models (${res.status})`);
+        }
         return res.json();
       })
-      .then((data: { models: ApiModel[] }) => {
-        setModels(data.models.map(mapModel));
+      .then((data: { models?: ApiModel[] }) => {
+        if (cancelled) return;
+        const parsed = (data?.models ?? [])
+          .map(mapModel)
+          .filter((model): model is ModelInfo => model !== null);
+        setModels(parsed);
+        setError(parsed.length === 0 ? "No models returned from API" : null);
         setLoading(false);
       })
-      .catch((err) => {
-        setError(err.message);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to fetch models");
         setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const consulateModels = models.filter((m) => m.consulateEligible);
@@ -87,5 +103,6 @@ export function formatModelMeta(model: ModelInfo): string {
 }
 
 export function getDefaultCouncilModelIds(models: ModelInfo[]): string[] {
-  return models.filter((m) => m.consulateEligible).map((m) => m.id);
+  const eligible = models.filter((m) => m.consulateEligible);
+  return (eligible.length > 0 ? eligible : models).map((m) => m.id);
 }

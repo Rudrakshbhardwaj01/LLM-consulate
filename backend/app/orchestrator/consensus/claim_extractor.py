@@ -6,6 +6,7 @@ import re
 from app.orchestrator.content_sanitizer import sanitize_council_content
 from app.orchestrator.consensus.models import ExtractedClaims
 from app.providers.nvidia_provider import NvidiaProvider
+from app.orchestrator.synthesis_prompt import truncate_text
 from app.schemas.chat import ChatMessage
 from app.schemas.provider import ModelResponse
 from app.utils.logging import get_logger
@@ -95,13 +96,14 @@ async def extract_claims_llm(
     if not provider.is_configured():
         return None
 
+    excerpt = truncate_text(sanitized, 6000)
     user_content = (
-        f"User question:\n{prompt}\n\n"
-        f"Council member ({response.model_name}) response:\n{sanitized}"
+        f"User question:\n{truncate_text(prompt, 1500)}\n\n"
+        f"Council member ({response.model_name}) response:\n{excerpt}"
     )
     messages = [
-        ChatMessage(role="system", content=CLAIM_EXTRACTION_PROMPT),
-        ChatMessage(role="user", content=user_content),
+        ChatMessage.create("system", CLAIM_EXTRACTION_PROMPT),
+        ChatMessage.create("user", user_content),
     ]
 
     try:

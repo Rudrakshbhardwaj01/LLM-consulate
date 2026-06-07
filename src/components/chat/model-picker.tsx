@@ -104,7 +104,9 @@ export function ModelPicker() {
 
   const displayModels =
     mode === "consulate"
-      ? models.filter((m) => m.consulateEligible)
+      ? (models.filter((m) => m.consulateEligible).length > 0
+          ? models.filter((m) => m.consulateEligible)
+          : models)
       : models;
 
   const selectedModel = models.find((m) => m.id === selectedModelId);

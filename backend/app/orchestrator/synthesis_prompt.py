@@ -16,6 +16,8 @@ USER_CONTENT_BUDGET = MAX_MESSAGE_CHARS - 200
 COMBINED_FULL_TEXT_THRESHOLD = 6_000
 MAX_CLAIM_BULLETS = 3
 MIN_PER_MODEL_CHARS = 120
+MAX_POSITION_CHARS = 200
+MAX_CLAIM_CHARS = 160
 
 
 def truncate_text(text: str, max_chars: int, *, suffix: str = "...") -> str:
@@ -63,7 +65,7 @@ def _format_claim_bullets(claims: list[str], max_bullets: int = MAX_CLAIM_BULLET
     for claim in claims:
         cleaned = re.sub(r"\s+", " ", claim).strip()
         if cleaned:
-            bullets.append(f"- {cleaned}")
+            bullets.append(f"- {truncate_text(cleaned, MAX_CLAIM_CHARS)}")
         if len(bullets) >= max_bullets:
             break
     if not bullets:
@@ -83,11 +85,14 @@ def compress_model_entry(
     reasoning = ""
 
     if claim:
-        position = claim.position_summary or claim.interpretation or claim.topic
+        position = truncate_text(
+            claim.position_summary or claim.interpretation or claim.topic,
+            MAX_POSITION_CHARS,
+        )
         reasoning = _format_claim_bullets(claim.claims)
     else:
         text = resp.effective_content
-        position = truncate_text(text, max(80, per_model_budget // 3))
+        position = truncate_text(text, MAX_POSITION_CHARS)
         reasoning = truncate_text(text, max(120, per_model_budget // 2))
 
     confidence_line = (
@@ -222,23 +227,42 @@ def build_consensus_user_content(
 def build_deadlock_user_content(
     prompt: str,
     consensus: ConsensusResult,
+    responses: list[ModelResponse] | None = None,
 ) -> tuple[str, dict[str, int | bool]]:
     """Deadlock payload: model, position, key reasoning, confidence only."""
     entries: list[str] = []
     claims_map = _claims_by_model(consensus)
-    count = max(len(consensus.extracted_claims), 1)
+
+    source_items: list[tuple[str, str, ExtractedClaims | None, ModelResponse | None]] = []
+    if consensus.extracted_claims:
+        for claim in consensus.extracted_claims:
+            source_items.append((claim.model_id, claim.model_name or claim.model_id, claim, None))
+    elif responses:
+        for resp in responses:
+            if resp.success and resp.effective_content:
+                source_items.append(
+                    (
+                        resp.model_id,
+                        resp.model_name or resp.model_id,
+                        claims_map.get(resp.model_id),
+                        resp,
+                    )
+                )
+
+    count = max(len(source_items), 1)
     per_model_budget = max(MIN_PER_MODEL_CHARS, USER_CONTENT_BUDGET // count)
 
-    for claim in consensus.extracted_claims:
-        confidence = _model_confidence(claim.model_id, consensus)
+    for model_id, model_name, claim, resp in source_items:
+        confidence = _model_confidence(model_id, consensus)
+        model_resp = resp or ModelResponse(
+            modelId=model_id,
+            modelName=model_name,
+            content="",
+            success=True,
+        )
         entries.append(
             compress_model_entry(
-                ModelResponse(
-                    modelId=claim.model_id,
-                    modelName=claim.model_name or claim.model_id,
-                    content=claim.sanitized_text,
-                    success=True,
-                ),
+                model_resp,
                 claim,
                 per_model_budget=per_model_budget,
                 confidence=confidence,
@@ -246,7 +270,7 @@ def build_deadlock_user_content(
         )
 
     council_block = "\n\n".join(entries)
-    raw_chars = len(council_block)
+    raw_chars = sum(len(r.effective_content) for r in (responses or []) if r.success)
 
     disagreement_note = ""
     if consensus.disagreement:
@@ -254,9 +278,9 @@ def build_deadlock_user_content(
         disagreement_note = (
             f"\nPrimary disagreement: {truncate_text(d.disputed_concept, 200)}\n"
             f"Majority cluster ({consensus.majority_support * 100:.0f}%): "
-            f"{truncate_text(d.majority_position, 300)}\n"
+            f"{truncate_text(d.majority_position, MAX_POSITION_CHARS)}\n"
             f"Minority cluster ({consensus.minority_support * 100:.0f}%): "
-            f"{truncate_text(d.minority_position, 300)}\n"
+            f"{truncate_text(d.minority_position, MAX_POSITION_CHARS)}\n"
         )
     elif consensus.primary_disagreement:
         disagreement_note = (

@@ -203,7 +203,7 @@ class ConsulateOrchestrator:
 
         yield ConsulateStreamEvent(type="stage", stage="initializing")
 
-        user_messages = [*messages, ChatMessage(role="user", content=prompt)]
+        user_messages = [*messages, ChatMessage.create("user", prompt)]
 
         yield ConsulateStreamEvent(type="stage", stage="receiving")
 
@@ -360,6 +360,7 @@ class ConsulateOrchestrator:
                     prompt,
                     agreement,
                     synthesis_id,
+                    successful,
                 ):
                     yield event
                 logger.info(
@@ -375,6 +376,7 @@ class ConsulateOrchestrator:
                 yield ConsulateStreamEvent(
                     type="synthesis_complete",
                     content=fallback_answer,
+                    answer=fallback_answer,
                     status="degraded",
                     deadlock=True,
                     synthesis_degraded=True,
@@ -412,6 +414,7 @@ class ConsulateOrchestrator:
             yield ConsulateStreamEvent(
                 type="synthesis_complete",
                 content=fallback_answer,
+                answer=fallback_answer,
                 status="degraded",
                 deadlock=False,
                 synthesis_degraded=True,

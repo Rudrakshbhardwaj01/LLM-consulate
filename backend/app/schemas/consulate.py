@@ -80,8 +80,12 @@ class ConsulateStreamEvent(BaseModel):
     status: SynthesisStatus | None = None
     deadlock: bool | None = None
     synthesis_degraded: bool | None = Field(default=None, alias="synthesisDegraded")
+    answer: str | None = None
 
     model_config = {"populate_by_name": True}
 
     def to_sse_dict(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True, exclude_none=True)
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        if self.content is not None and "answer" not in data:
+            data["answer"] = self.content
+        return data

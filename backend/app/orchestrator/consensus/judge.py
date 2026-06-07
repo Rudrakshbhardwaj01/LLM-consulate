@@ -6,6 +6,7 @@ import re
 from app.orchestrator.consensus.majority_vote import analyze_majority
 from app.orchestrator.consensus.models import ExtractedClaims, JudgeVerdict, PositionCluster
 from app.providers.nvidia_provider import NvidiaProvider
+from app.orchestrator.synthesis_prompt import truncate_text
 from app.schemas.chat import ChatMessage
 from app.utils.logging import get_logger
 
@@ -75,14 +76,14 @@ async def run_judge(
         )
 
     user_content = (
-        f"User question:\n{prompt}\n\n"
+        f"User question:\n{truncate_text(prompt, 1500)}\n\n"
         f"Council responses ({len(claims)} members):\n\n"
         f"{chr(10).join(responses_block)}"
     )
 
     messages = [
-        ChatMessage(role="system", content=JUDGE_SYSTEM_PROMPT),
-        ChatMessage(role="user", content=user_content),
+        ChatMessage.create("system", JUDGE_SYSTEM_PROMPT),
+        ChatMessage.create("user", user_content),
     ]
 
     try:

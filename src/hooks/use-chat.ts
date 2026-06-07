@@ -26,8 +26,13 @@ async function getModelInfo(): Promise<Record<string, ModelInfoEntry>> {
   }
 
   const data = await res.json();
+  const models = Array.isArray(data?.models) ? data.models : [];
+  if (models.length === 0) {
+    throw new Error("No models returned from API");
+  }
+
   modelInfoCache = Object.fromEntries(
-    data.models.map(
+    models.map(
       (m: {
         id: string;
         display_name?: string;
@@ -417,7 +422,10 @@ export function useChat() {
             }
 
             if (type === "synthesis_complete") {
-              synthesisContent = event.content as string;
+              synthesisContent =
+                (event.answer as string | undefined) ??
+                (event.content as string | undefined) ??
+                synthesisContent;
               if (event.status === "degraded" || event.synthesisDegraded) {
                 consulateData.synthesisDegraded = true;
               }
