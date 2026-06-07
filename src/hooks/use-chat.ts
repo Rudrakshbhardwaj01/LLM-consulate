@@ -360,16 +360,20 @@ export function useChat() {
 
             if (type === "model_status") {
               const modelId = event.modelId as string;
+              const modelStatus =
+                (event.modelStatus as string | undefined) ??
+                (event.status as string | undefined) ??
+                "pending";
               consulateData.modelStatuses = {
                 ...consulateData.modelStatuses,
-                [modelId]: event.status as string,
+                [modelId]: modelStatus,
               };
               const resp = ensureCouncilMember(
                 consulateData,
                 modelId,
                 modelInfo
               );
-              resp.status = event.status as string;
+              resp.status = modelStatus;
               immediate = true;
             }
 
@@ -426,7 +430,18 @@ export function useChat() {
                 (event.answer as string | undefined) ??
                 (event.content as string | undefined) ??
                 synthesisContent;
-              if (event.status === "degraded" || event.synthesisDegraded) {
+              const synthesisStatus =
+                (event.synthesisStatus as string | undefined) ??
+                (event.status as string | undefined);
+              if (synthesisStatus) {
+                consulateData.synthesisStatus = synthesisStatus as
+                  | "ok"
+                  | "degraded";
+              }
+              if (
+                synthesisStatus === "degraded" ||
+                event.synthesisDegraded
+              ) {
                 consulateData.synthesisDegraded = true;
               }
               immediate = true;

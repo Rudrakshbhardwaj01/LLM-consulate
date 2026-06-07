@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field
 
 from app.schemas.chat import ChatMessage, MAX_CONVERSATION_MESSAGES, MAX_MESSAGE_CHARS
 
-SynthesisStatus = Literal["ok", "degraded"]
-
 
 class ConsulateRequest(BaseModel):
     model_ids: list[str] = Field(default_factory=list, alias="modelIds")
@@ -27,7 +25,17 @@ ConsulateStage = Literal[
     "deadlock",
     "error",
 ]
-ModelStatus = Literal["pending", "streaming", "complete", "error", "timeout"]
+ModelStatus = Literal[
+    "pending",
+    "running",
+    "streaming",
+    "completed",
+    "complete",
+    "failed",
+    "error",
+    "timeout",
+]
+SynthesisStatus = Literal["ok", "degraded"]
 
 
 class DisagreementSummary(BaseModel):
@@ -55,7 +63,10 @@ class ConsulateStreamEvent(BaseModel):
     type: str
     stage: ConsulateStage | None = None
     model_id: str | None = Field(default=None, alias="modelId")
-    status: ModelStatus | None = None
+    model_status: ModelStatus | None = Field(default=None, alias="modelStatus")
+    synthesis_status: SynthesisStatus | None = Field(
+        default=None, alias="synthesisStatus"
+    )
     content: str | None = None
     reasoning: str | None = None
     error: str | None = None
@@ -77,7 +88,6 @@ class ConsulateStreamEvent(BaseModel):
     consensus_outcome: str | None = Field(default=None, alias="consensusOutcome")
     outcome_label: str | None = Field(default=None, alias="outcomeLabel")
     confidence_level: str | None = Field(default=None, alias="confidenceLevel")
-    status: SynthesisStatus | None = None
     deadlock: bool | None = None
     synthesis_degraded: bool | None = Field(default=None, alias="synthesisDegraded")
     answer: str | None = None
@@ -88,4 +98,9 @@ class ConsulateStreamEvent(BaseModel):
         data = self.model_dump(by_alias=True, exclude_none=True)
         if self.content is not None and "answer" not in data:
             data["answer"] = self.content
+        # Backward-compatible alias for clients that read a single "status" field.
+        if self.model_status is not None:
+            data["status"] = self.model_status
+        elif self.synthesis_status is not None:
+            data["status"] = self.synthesis_status
         return data

@@ -20,6 +20,57 @@ export type ConsulateStage =
 
 
 
+export type ModelStatus =
+
+  | "pending"
+
+  | "running"
+
+  | "streaming"
+
+  | "completed"
+
+  | "complete"
+
+  | "failed"
+
+  | "error"
+
+  | "timeout";
+
+
+
+export type SynthesisStatus = "ok" | "degraded";
+
+
+
+export interface ConsulateStreamEventPayload {
+
+  type: string;
+
+  stage?: ConsulateStage;
+
+  modelId?: string;
+
+  modelStatus?: ModelStatus;
+
+  synthesisStatus?: SynthesisStatus;
+
+  /** @deprecated Use modelStatus or synthesisStatus */
+  status?: ModelStatus | SynthesisStatus;
+
+  content?: string;
+
+  answer?: string;
+
+  synthesisDegraded?: boolean;
+
+  deadlock?: boolean;
+
+}
+
+
+
 export interface MinorityReport {
 
   model: string;
@@ -50,7 +101,7 @@ export interface ConsulateMessageData {
 
     reasoning?: string;
 
-    status: string;
+    status: ModelStatus | string;
 
     error?: string;
 
@@ -64,7 +115,9 @@ export interface ConsulateMessageData {
 
   currentStage?: ConsulateStage;
 
-  modelStatuses?: Record<string, string>;
+  modelStatuses?: Record<string, ModelStatus | string>;
+
+  synthesisStatus?: SynthesisStatus;
 
   agreementScore?: number;
 

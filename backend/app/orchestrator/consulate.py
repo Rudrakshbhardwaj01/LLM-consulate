@@ -83,7 +83,7 @@ class ConsulateOrchestrator:
 
         await queue.put(
             ConsulateStreamEvent(
-                type="model_status", model_id=model_id, status="streaming"
+                type="model_status", model_id=model_id, model_status="streaming"
             )
         )
 
@@ -113,7 +113,7 @@ class ConsulateOrchestrator:
             )
             await queue.put(
                 ConsulateStreamEvent(
-                    type="model_status", model_id=model_id, status="complete"
+                    type="model_status", model_id=model_id, model_status="complete"
                 )
             )
 
@@ -145,7 +145,7 @@ class ConsulateOrchestrator:
             )
             await queue.put(
                 ConsulateStreamEvent(
-                    type="model_status", model_id=model_id, status="timeout"
+                    type="model_status", model_id=model_id, model_status="timeout"
                 )
             )
             return ModelResponse(
@@ -172,7 +172,7 @@ class ConsulateOrchestrator:
             )
             await queue.put(
                 ConsulateStreamEvent(
-                    type="model_status", model_id=model_id, status="error"
+                    type="model_status", model_id=model_id, model_status="error"
                 )
             )
             return ModelResponse(
@@ -209,7 +209,7 @@ class ConsulateOrchestrator:
 
         for model_id in council_ids:
             yield ConsulateStreamEvent(
-                type="model_status", model_id=model_id, status="pending"
+                type="model_status", model_id=model_id, model_status="pending"
             )
 
         queue: asyncio.Queue[ConsulateStreamEvent | None] = asyncio.Queue()
@@ -377,7 +377,7 @@ class ConsulateOrchestrator:
                     type="synthesis_complete",
                     content=fallback_answer,
                     answer=fallback_answer,
-                    status="degraded",
+                    synthesis_status="degraded",
                     deadlock=True,
                     synthesis_degraded=True,
                 )
@@ -415,7 +415,7 @@ class ConsulateOrchestrator:
                 type="synthesis_complete",
                 content=fallback_answer,
                 answer=fallback_answer,
-                status="degraded",
+                synthesis_status="degraded",
                 deadlock=False,
                 synthesis_degraded=True,
             )

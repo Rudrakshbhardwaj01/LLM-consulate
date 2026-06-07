@@ -78,7 +78,9 @@ class Synthesizer:
                 full += content
                 yield ConsulateStreamEvent(type="synthesis_chunk", content=content)
 
-        yield ConsulateStreamEvent(type="synthesis_complete", content=full, status="ok")
+        yield ConsulateStreamEvent(
+            type="synthesis_complete", content=full, synthesis_status="ok"
+        )
 
     async def stream_deadlock_summary(
         self,
@@ -108,6 +110,6 @@ class Synthesizer:
         yield ConsulateStreamEvent(
             type="synthesis_complete",
             content=full,
-            status="ok",
+            synthesis_status="ok",
             deadlock=True,
         )
